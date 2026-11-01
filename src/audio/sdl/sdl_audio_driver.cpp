@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <string>
 
 #include <rex/assert.h>
 #include <rex/audio/conversion.h>
@@ -25,6 +26,13 @@
 #include <SDL3/SDL.h>
 
 REXCVAR_DEFINE_BOOL(audio_mute, false, "Audio", "Mute audio output");
+
+REXCVAR_DEFINE_STRING(audio_output, "auto", "Audio",
+                      "Speaker layout: auto (follows the Windows device: stereo, 5.1 or 7.1), "
+                      "stereo, headphones (virtual surround: the 5.1 mix rendered for "
+                      "headphones), 5.1 or 7.1")
+    .allowed({"auto", "stereo", "headphones", "5.1", "7.1"})
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 
 namespace rex::audio::sdl {
 
@@ -49,46 +57,54 @@ bool SDLAudioDriver::Initialize() {
   }
   sdl_initialized_ = true;
 
-  SDL_AudioSpec desired_spec = {};
-  SDL_AudioSpec obtained_spec = {};
-  desired_spec.freq = frame_frequency_;
-  desired_spec.format = SDL_AUDIO_F32LE;
-  desired_spec.channels = frame_channels_;
-  sdl_device_channels_ = frame_channels_;
-  sdl_stream_ = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &desired_spec,
-                                          SDLCallback, this);
-  if (!sdl_stream_) {
-    REXAPU_ERROR("SDL_OpenAudioDeviceStream() failed: {}", SDL_GetError());
+  // The guest always renders 5.1. The stream is opened with the channel count of the chosen
+  // layout; SDL converts it to the device's own layout when they differ.
+  if (!OpenStream(frame_channels_)) {
     return false;
   }
-
   SDL_AudioDeviceID sdl_device = SDL_GetAudioStreamDevice(sdl_stream_);
   if (!sdl_device) {
     REXAPU_ERROR("SDL_GetAudioStreamDevice() failed: {}", SDL_GetError());
     return false;
   }
 
-  if (!SDL_GetAudioDeviceFormat(sdl_device, &obtained_spec, NULL)) {
+  SDL_AudioSpec obtained_spec = {};
+  if (!SDL_GetAudioDeviceFormat(sdl_device, &obtained_spec, &device_buffer_frames_)) {
     REXAPU_WARN("SDL_GetAudioDeviceFormat() failed: {}", SDL_GetError());
-    obtained_spec = desired_spec;
+    obtained_spec.freq = frame_frequency_;
+    obtained_spec.format = SDL_AUDIO_F32LE;
+    obtained_spec.channels = frame_channels_;
+    device_buffer_frames_ = 0;
   }
 
-  // A 1-channel device gets the stereo fold too, then SDL collapses to mono.
-  // Handing it a 6ch stream instead would use SDL's own downmix.
-  if (obtained_spec.channels <= 2) {
+  const std::string& option = REXCVAR_GET(audio_output);
+  if (option == "stereo") {
+    layout_ = OutputLayout::kStereo;
+  } else if (option == "headphones") {
+    layout_ = OutputLayout::kHeadphones;
+  } else if (option == "5.1") {
+    layout_ = OutputLayout::kSurround51;
+  } else if (option == "7.1") {
+    layout_ = OutputLayout::kSurround71;
+  } else {
+    // auto: follow the device. A 1-channel device gets the stereo fold too, then SDL collapses
+    // it to mono.
+    layout_ = obtained_spec.channels >= 8   ? OutputLayout::kSurround71
+              : obtained_spec.channels >= 6 ? OutputLayout::kSurround51
+                                            : OutputLayout::kStereo;
+  }
+  const int channels = layout_ == OutputLayout::kSurround71   ? 8
+                       : layout_ == OutputLayout::kSurround51 ? 6
+                                                              : 2;
+  if (channels != static_cast<int>(frame_channels_)) {
     SDL_DestroyAudioStream(sdl_stream_);
     sdl_stream_ = nullptr;
-    desired_spec.channels = 2;
-    sdl_device_channels_ = 2;
-    sdl_stream_ = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &desired_spec,
-                                            SDLCallback, this);
-    if (!sdl_stream_) {
-      REXAPU_ERROR("SDL_OpenAudioDeviceStream() stereo fallback failed: {}", SDL_GetError());
+    if (!OpenStream(channels)) {
       return false;
     }
     sdl_device = SDL_GetAudioStreamDevice(sdl_stream_);
     if (!sdl_device) {
-      REXAPU_ERROR("SDL_GetAudioStreamDevice() failed after stereo fallback: {}", SDL_GetError());
+      REXAPU_ERROR("SDL_GetAudioStreamDevice() failed: {}", SDL_GetError());
       return false;
     }
   }
@@ -96,16 +112,35 @@ bool SDLAudioDriver::Initialize() {
   // The endpoint layout decides which mix the callback runs, and it is the
   // first thing worth knowing when a report says the balance is wrong on one
   // speaker setup and right on another.
+  static constexpr const char* kLayoutNames[] = {"stereo", "headphones (virtual surround)",
+                                                 "5.1", "7.1"};
   const char* device_name = SDL_GetAudioDeviceName(sdl_device);
-  REXAPU_INFO("audio endpoint '{}': {} ch, {} Hz, format 0x{:04X}; submitting {} ch",
-              device_name ? device_name : "?", obtained_spec.channels, obtained_spec.freq,
-              static_cast<uint32_t>(obtained_spec.format), static_cast<int>(sdl_device_channels_));
+  REXAPU_INFO(
+      "audio endpoint '{}': {} ch, {} Hz, format 0x{:04X}, buffer {} frames; output {} ({} ch)",
+      device_name ? device_name : "?", obtained_spec.channels, obtained_spec.freq,
+      static_cast<uint32_t>(obtained_spec.format), device_buffer_frames_,
+      kLayoutNames[static_cast<int>(layout_)], static_cast<int>(sdl_device_channels_));
 
   if (!SDL_ResumeAudioDevice(sdl_device)) {
     REXAPU_ERROR("SDL_ResumeAudioDevice() failed: {}", SDL_GetError());
     return false;
   }
 
+  return true;
+}
+
+bool SDLAudioDriver::OpenStream(int channels) {
+  SDL_AudioSpec desired_spec = {};
+  desired_spec.freq = frame_frequency_;
+  desired_spec.format = SDL_AUDIO_F32LE;
+  desired_spec.channels = channels;
+  sdl_device_channels_ = static_cast<uint8_t>(channels);
+  sdl_stream_ = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &desired_spec,
+                                          SDLCallback, this);
+  if (!sdl_stream_) {
+    REXAPU_ERROR("SDL_OpenAudioDeviceStream({} ch) failed: {}", channels, SDL_GetError());
+    return false;
+  }
   return true;
 }
 
@@ -170,9 +205,28 @@ void SDLAudioDriver::SDLCallback(void* userdata, SDL_AudioStream* stream, int ad
       static_cast<int>(channel_samples_ * std::max<uint8_t>(driver->sdl_device_channels_, 1));
   const int len = static_cast<int>(sizeof(float) * sample_count);
   float* data = SDL_stack_alloc(float, sample_count);
-  if (!data) {
+  // 5.1 intermediate for the layouts that are built from it (7.1 and headphones).
+  float* surround = SDL_stack_alloc(float, channel_samples_ * frame_channels_);
+  if (!data || !surround) {
     REXAPU_ERROR("SDLAudioDriver::SDLCallback failed to allocate {} samples", sample_count);
+    if (data) SDL_stack_free(data);
+    if (surround) SDL_stack_free(surround);
     return;
+  }
+  {
+    // Latency estimate: guest frames waiting + audio queued in the stream + device buffer.
+    size_t queued_frames;
+    {
+      std::unique_lock<std::mutex> guard(driver->frames_mutex_);
+      queued_frames = driver->frames_queued_.size();
+    }
+    const int bytes_per_frame = static_cast<int>(sizeof(float)) * driver->sdl_device_channels_;
+    const int stream_frames = bytes_per_frame ? SDL_GetAudioStreamQueued(stream) / bytes_per_frame
+                                              : 0;
+    const double samples = double(queued_frames) * channel_samples_ +
+                           double(std::max(stream_frames, 0)) +
+                           double(driver->device_buffer_frames_);
+    SetOutputLatencyMs(static_cast<float>(samples * 1000.0 / frame_frequency_));
   }
   // Snapshot once. A change mid-callback would split the frame across two mixes.
   const StereoFold fold = GetStereoFold();
@@ -186,6 +240,7 @@ void SDLAudioDriver::SDLCallback(void* userdata, SDL_AudioStream* stream, int ad
         REXAPU_DEBUG("SDLCallback: no frames queued (silence)");
         sdl_callback_count++;
       }
+      CountOutputUnderrun();
       std::memset(data, 0, len);
       if (!SDL_PutAudioStreamData(stream, data, len)) {
         REXAPU_ERROR("SDL_PutAudioStreamData() failed while filling silence: {}", SDL_GetError());
@@ -198,17 +253,24 @@ void SDLAudioDriver::SDLCallback(void* userdata, SDL_AudioStream* stream, int ad
       if (REXCVAR_GET(audio_mute)) {
         std::memset(data, 0, len);
       } else {
-        switch (driver->sdl_device_channels_) {
-          case 2:
+        switch (driver->layout_) {
+          case OutputLayout::kStereo:
             conversion::sequential_6_BE_to_interleaved_2_LE(data, buffer, channel_samples_, fold,
                                                             gain);
             break;
-          case 6:
+          case OutputLayout::kHeadphones:
+            conversion::sequential_6_BE_to_interleaved_6_LE(surround, buffer, channel_samples_,
+                                                            SurroundMix{}, gain);
+            driver->headphones_.Process(surround, data, channel_samples_);
+            break;
+          case OutputLayout::kSurround51:
             conversion::sequential_6_BE_to_interleaved_6_LE(data, buffer, channel_samples_, mix,
                                                             gain);
             break;
-          default:
-            assert_unhandled_case(driver->sdl_device_channels_);
+          case OutputLayout::kSurround71:
+            conversion::sequential_6_BE_to_interleaved_6_LE(surround, buffer, channel_samples_,
+                                                            mix, gain);
+            Upmix51To71(surround, data, channel_samples_);
             break;
         }
       }
@@ -224,6 +286,7 @@ void SDLAudioDriver::SDLCallback(void* userdata, SDL_AudioStream* stream, int ad
       additional_amount -= len;
     }
   }
+  SDL_stack_free(surround);
   SDL_stack_free(data);
 }
 

@@ -1974,8 +1974,12 @@ VkImageView VulkanTextureCache::VulkanTexture::GetOrCreate3DAs2DImageView(bool i
     image_create_info.flags = 0;
     image_create_info.imageType = VK_IMAGE_TYPE_2D;
     image_create_info.format = wrapper_format;
-    image_create_info.extent.width = key().GetWidth();
-    image_create_info.extent.height = key().GetHeight();
+    // Loaded with the key's scaled_resolve, so sized at the draw resolution scale (see the
+    // D3D12 version of this function).
+    image_create_info.extent.width =
+        key().GetWidth() * (key().scaled_resolve ? vulkan_texture_cache.draw_resolution_scale_x() : 1);
+    image_create_info.extent.height =
+        key().GetHeight() * (key().scaled_resolve ? vulkan_texture_cache.draw_resolution_scale_y() : 1);
     image_create_info.extent.depth = 1;
     image_create_info.mipLevels = 1;
     image_create_info.arrayLayers = 1;

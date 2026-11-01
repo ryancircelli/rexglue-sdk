@@ -170,8 +170,9 @@ class ContentManager {
   X_RESULT ReadContentHeaderFile(const std::string_view file_name, uint64_t xuid, uint32_t title_id,
                                  XContentType content_type, XCONTENT_AGGREGATE_DATA& data) const;
 
-  std::filesystem::path ResolveGameUserContentPath();
-  bool IsContentOpen(const XCONTENT_AGGREGATE_DATA& data) const;
+  /// Per-game data of a local profile (title specific profile settings).
+  std::filesystem::path ResolveGameUserContentPath(uint64_t xuid);
+  bool IsContentOpen(uint64_t xuid, const XCONTENT_AGGREGATE_DATA& data) const;
   void CloseOpenedFilesFromContent(const std::string_view root_name);
 
   // Returns the host filesystem path for an open content package, or empty.
@@ -184,15 +185,16 @@ class ContentManager {
 
  private:
   std::filesystem::path ResolvePackageRoot(uint64_t xuid, XContentType content_type,
-                                           uint32_t title_id = -1);
-  std::filesystem::path ResolvePackagePath(uint64_t xuid, const XCONTENT_AGGREGATE_DATA& data);
+                                           uint32_t title_id = -1) const;
+  std::filesystem::path ResolvePackagePath(uint64_t xuid,
+                                           const XCONTENT_AGGREGATE_DATA& data) const;
   std::filesystem::path ResolvePackageHeaderPath(const std::string_view file_name, uint64_t xuid,
                                                  uint32_t title_id,
                                                  XContentType content_type) const;
 
   std::unordered_map<string::string_key_case, ContentPackage*,
                      string::string_key_case::Hash>::iterator
-  FindOpenPackageByData(const XCONTENT_AGGREGATE_DATA& data);
+  FindOpenPackageByData(uint64_t xuid, const XCONTENT_AGGREGATE_DATA& data);
   ContentPackage* DetachPackage(std::unordered_map<string::string_key_case, ContentPackage*,
                                                    string::string_key_case::Hash>::iterator it);
 

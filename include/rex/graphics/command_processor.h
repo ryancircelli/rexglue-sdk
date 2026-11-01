@@ -86,6 +86,9 @@ class CommandProcessor {
 
   uint32_t counter() const { return counter_; }
   void increment_counter() { counter_++; }
+  // Frames the guest has swapped so far (VdSwap packets): unlike counter(), vblanks do not move it, so a watchdog can
+  // tell a game that stopped presenting. Any thread may read it.
+  uint64_t swap_count() const { return swap_count_.load(std::memory_order_relaxed); }
 
   Shader* active_vertex_shader() const { return active_vertex_shader_; }
   Shader* active_pixel_shader() const { return active_pixel_shader_; }
@@ -244,6 +247,7 @@ class CommandProcessor {
   std::vector<uint32_t> me_bin_;
 
   uint32_t counter_ = 0;
+  std::atomic<uint64_t> swap_count_{0};
 
   uint32_t primary_buffer_ptr_ = 0;
   uint32_t primary_buffer_size_ = 0;

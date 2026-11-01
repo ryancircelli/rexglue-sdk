@@ -22,6 +22,10 @@
 #include <rex/string.h>
 #include <rex/ui/vulkan/device.h>
 
+REXCVAR_DEFINE_BOOL(vulkan_native_shader_features, false, "UI/Vulkan",
+                    "Enable the available features for the experimental native shaders")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+
 REXCVAR_DEFINE_BOOL(vulkan_require_fragment_stores_and_atomics, true, "UI/Vulkan",
                     "Deprecated and ignored for parity; fragmentStoresAndAtomics is always "
                     "required for Vulkan GPU emulation")
@@ -192,6 +196,15 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
     XE_UI_VULKAN_STRUCT_EXTENSION(EXT_memory_budget)
   }
   if (properties.apiVersion >= VK_MAKE_API_VERSION(0, 1, 1, 0)) {
+    // #179. Host memory imported as device memory (the native renderer's guest memory test).
+    XE_UI_VULKAN_STRUCT_EXTENSION(EXT_external_memory_host)
+  }
+  if (get_physical_device_properties2_supported && REXCVAR_GET(vulkan_native_shader_features)) {
+    // #456. The native renderer: dynamic blending and color write masks. Its three features are
+    // enabled further down, only if the device provides them.
+    XE_UI_VULKAN_STRUCT_EXTENSION(EXT_extended_dynamic_state3)
+  }
+  if (properties.apiVersion >= VK_MAKE_API_VERSION(0, 1, 1, 0)) {
     // #414.
     XE_UI_VULKAN_STRUCT_PROMOTED_EXTENSION(KHR_maintenance4, 1, 3)
     // #55.
@@ -335,6 +348,10 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
   VulkanFeatures<VkPhysicalDeviceRobustness2FeaturesEXT,
                  VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT>
       features_EXT_robustness2;
+  // The app's native renderer.
+  VulkanFeatures<VkPhysicalDeviceExtendedDynamicState3FeaturesEXT,
+                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT>
+      features_EXT_extended_dynamic_state3;
 
   if (get_physical_device_properties2_supported) {
     if (properties.apiVersion >= VK_MAKE_API_VERSION(0, 1, 2, 0)) {
@@ -375,6 +392,9 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
     }
     if (device->extensions_.ext_EXT_robustness2) {
       features_EXT_robustness2.Link(supported_features_2, device_create_info);
+    }
+    if (device->extensions_.ext_EXT_extended_dynamic_state3) {
+      features_EXT_extended_dynamic_state3.Link(supported_features_2, device_create_info);
     }
     ifn.vkGetPhysicalDeviceProperties2(physical_device, &properties_2);
     ifn.vkGetPhysicalDeviceFeatures2(physical_device, &supported_features_2);
@@ -646,10 +666,29 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
   }
 
   if (properties.apiVersion >= VK_MAKE_API_VERSION(0, 1, 2, 0)) {
-    if (with_gpu_emulation) {
+    if (with_gpu_emulation || REXCVAR_GET(vulkan_native_shader_features)) {
       XE_UI_VULKAN_FEATURE_2(features_1_2, samplerMirrorClampToEdge);
       XE_UI_VULKAN_FEATURE_2(features_1_2, uniformBufferStandardLayout);
       XE_UI_VULKAN_FEATURE_2(features_1_2, scalarBlockLayout);
+    }
+    if (REXCVAR_GET(vulkan_native_shader_features)) {
+      XE_UI_VULKAN_FEATURE(shaderInt64)
+      XE_UI_VULKAN_FEATURE(shaderSampledImageArrayDynamicIndexing)
+      // Fragments and vertices shaded per pass (pipeline statistics for the native
+      // renderer). Without the feature the query pool cannot be created.
+      XE_UI_VULKAN_FEATURE(pipelineStatisticsQuery)
+      XE_UI_VULKAN_FEATURE_2(features_1_2, bufferDeviceAddress);
+      XE_UI_VULKAN_FEATURE_2(features_1_2, runtimeDescriptorArray);
+      // Native renderer: unbounded textures and samplers that are added while the
+      // command buffer is already recording.
+      XE_UI_VULKAN_FEATURE_2(features_1_2, descriptorBindingPartiallyBound);
+      XE_UI_VULKAN_FEATURE_2(features_1_2, descriptorBindingSampledImageUpdateAfterBind);
+      XE_UI_VULKAN_FEATURE_2(features_1_2, descriptorBindingUpdateUnusedWhilePending);
+      if (!with_gpu_emulation) {
+        XE_UI_VULKAN_FEATURE(independentBlend)
+        XE_UI_VULKAN_FEATURE(samplerAnisotropy)
+        XE_UI_VULKAN_FEATURE(fullDrawIndexUint32)
+      }
     }
   } else {
     if (ext_1_2_KHR_sampler_mirror_clamp_to_edge) {
@@ -662,6 +701,7 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
       XE_UI_VULKAN_FEATURE_2(features_1_3, shaderDemoteToHelperInvocation);
       XE_UI_VULKAN_FEATURE_2(features_1_3, dynamicRendering);
     }
+    XE_UI_VULKAN_FEATURE_2(features_1_3, pipelineCreationCacheControl);
   } else {
     if (ext_1_3_KHR_dynamic_rendering) {
       if (with_gpu_emulation) {
@@ -729,6 +769,15 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
     if (with_gpu_emulation) {
       XE_UI_VULKAN_FEATURE_2(features_EXT_robustness2, nullDescriptor)
     }
+  }
+
+  if (device->extensions_.ext_EXT_extended_dynamic_state3) {
+    // Only these three, the ones the native renderer uses. With all three, the pipeline's
+    // pAttachments is not used: blending, its equation and the mask of each render target are set with
+    // vkCmdSet*.
+    XE_UI_VULKAN_FEATURE_2(features_EXT_extended_dynamic_state3, extendedDynamicState3ColorBlendEnable)
+    XE_UI_VULKAN_FEATURE_2(features_EXT_extended_dynamic_state3, extendedDynamicState3ColorBlendEquation)
+    XE_UI_VULKAN_FEATURE_2(features_EXT_extended_dynamic_state3, extendedDynamicState3ColorWriteMask)
   }
 
 #undef XE_UI_VULKAN_LIMIT

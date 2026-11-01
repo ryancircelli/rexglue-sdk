@@ -12,6 +12,7 @@
 #include "builder_context.h"
 #include "helpers.h"
 
+#include <algorithm>
 #include <fmt/format.h>
 
 #include <rex/logging.h>
@@ -124,6 +125,17 @@ bool build_bctr(BuilderContext& ctx) {
     }
   }
 
+  // A "table" whose targets are all null is not a jump table: the analysis took a call through a table of function
+  // pointers (lwzx from the table, mtctr, bctr) for one, and every case would trap. It is the indirect tail call below.
+  if (jt && !jt->targets.empty() &&
+      std::all_of(jt->targets.begin(), jt->targets.end(), [](auto label) { return label == 0; })) {
+    REXCODEGEN_WARN("bctr at 0x{:08X}: every target of its jump table is null; emitted as an indirect tail call",
+                    ctx.base);
+    if (ctx.activeJumpTable)
+      ctx.reset_switch_table();
+    jt = nullptr;
+  }
+
   if (jt) {
     ctx.println("\tswitch ({}.u32) {{", ctx.r(jt->indexRegister));
 
@@ -147,7 +159,11 @@ bool build_bctr(BuilderContext& ctx) {
         case TargetKind::Import:
           if (auto* targetFn = ctx.graph().getFunction(label)) {
             ctx.emitCtx.reference(targetFn->name());
-            ctx.println("\t\t{}(ctx, base);", targetFn->name());
+            if (targetFn->sharesRegisters())
+              ctx.emit_call_sharing_registers(fmt::format("{}(ctx, base);", targetFn->name()),
+                                              false, "\t\t");
+            else
+              ctx.println("\t\t{}(ctx, base);", targetFn->name());
           } else {
             REXCODEGEN_ERROR(
                 "Jump target 0x{:08X} classified as function but not in graph at bctr 0x{:08X}",
@@ -177,7 +193,10 @@ bool build_bctr(BuilderContext& ctx) {
     // NOTE(tomc): If this is actually an unresolved switch table, the code after
     // will be unreachable. This is caught during analysis by discover_blocks.
     // The validation phase will report missing switch tables.
-    ctx.println("\tREX_CALL_INDIRECT_FUNC({}.u32);", ctx.ctr());
+    // An indirect tail jump may land on a fragment split off this very function (the
+    // targets the hole finder declared), which reads our live registers from ctx.
+    ctx.emit_call_sharing_registers(fmt::format("REX_CALL_INDIRECT_FUNC({}.u32);", ctx.ctr()),
+                                    false, "\t");
     ctx.println("\treturn;");
   }
   return true;
@@ -193,7 +212,8 @@ bool build_bctrl(BuilderContext& ctx) {
 
 bool build_bnectr(BuilderContext& ctx) {
   ctx.println("\tif (!{}.eq) {{", ctx.cr(ctx.insn.operands[0]));
-  ctx.println("\t\tREX_CALL_INDIRECT_FUNC({}.u32);", ctx.ctr());
+  ctx.emit_call_sharing_registers(fmt::format("REX_CALL_INDIRECT_FUNC({}.u32);", ctx.ctr()),
+                                  false, "\t\t");
   ctx.println("\t\treturn;");
   ctx.println("\t}}");
   return true;

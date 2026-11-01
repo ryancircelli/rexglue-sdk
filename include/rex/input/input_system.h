@@ -63,6 +63,10 @@ class InputSystem : public system::IInputSystem {
   void ToggleVibration();
 
   std::bitset<kMaxGuestUsers> GetConnectedUsers() const { return connected_users_; }
+  /// Bit N set = guest user N has a device assigned (user 0: any device, keyboard and mouse
+  /// included; users 1-3: a real controller). Unlike GetConnectedUsers it does not wait for the
+  /// guest to poll that user.
+  uint32_t GetAssignedUserMask() const { return assigned_user_mask_; }
   /// Guest user whose device most recently produced a button press.
   uint32_t GetLastUsedUser() const { return last_used_user_; }
 
@@ -78,6 +82,8 @@ class InputSystem : public system::IInputSystem {
   DeviceId ChooseDeviceForUser(uint32_t user_index) const;
 
   void UpdateConnectedUser(uint32_t user_index, bool connected);
+  /// Recomputes assigned_user_mask_ and tells the kernel when it changed.
+  void UpdateAssignedUsers();
   void AdjustDeadzoneLevels(uint32_t user_index, X_INPUT_GAMEPAD* gamepad) const;
   X_INPUT_VIBRATION ModifyVibrationLevel(const X_INPUT_VIBRATION* vibration) const;
 
@@ -94,6 +100,7 @@ class InputSystem : public system::IInputSystem {
   std::vector<InputDriver*> device_owners_;
 
   std::bitset<kMaxGuestUsers> connected_users_;
+  uint32_t assigned_user_mask_ = 0;
   uint32_t last_used_user_ = 0;
   // {left, right} stick maxima, scaling the deadzone percentages.
   std::array<std::pair<JoystickValue, JoystickValue>, kMaxGuestUsers> user_max_joystick_value_ = {};

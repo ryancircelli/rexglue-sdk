@@ -11,11 +11,13 @@ install(TARGETS ${REXGLUE_INSTALL_TARGETS}
 )
 
 # A Debug codegen tool runs an order of magnitude slower, so only Release ships.
-install(TARGETS rexglue
-    EXPORT rexglueTargets
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    CONFIGURATIONS Release
-)
+if(TARGET rexglue)
+    install(TARGETS rexglue
+        EXPORT rexglueTargets
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        CONFIGURATIONS Release
+    )
+endif()
 
 if(REXGLUE_INSTALL_FIDELITYFX_TARGETS)
     install(TARGETS ${REXGLUE_INSTALL_FIDELITYFX_TARGETS}

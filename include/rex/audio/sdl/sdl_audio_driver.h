@@ -16,6 +16,7 @@
 #include <stack>
 
 #include <rex/audio/audio_driver.h>
+#include <rex/audio/downmix.h>
 #include <rex/thread.h>
 
 #include <SDL3/SDL.h>
@@ -37,9 +38,16 @@ class SDLAudioDriver : public AudioDriver {
 
   rex::thread::Semaphore* semaphore_ = nullptr;
 
+  /// Opens the output stream with this many channels; false on failure.
+  bool OpenStream(int channels);
+
   SDL_AudioStream* sdl_stream_ = nullptr;
   bool sdl_initialized_ = false;
   uint8_t sdl_device_channels_ = 0;
+  OutputLayout layout_ = OutputLayout::kStereo;
+  HeadphoneVirtualizer headphones_;
+  // Sample frames of the device buffer (latency estimate).
+  int device_buffer_frames_ = 0;
 
   static const uint32_t frame_frequency_ = 48000;
   static const uint32_t frame_channels_ = 6;

@@ -79,6 +79,11 @@ void ShutdownLogging();
 void FlushLogging();
 
 /**
+ * The log file this run writes to (empty without a file sink).
+ */
+std::filesystem::path CurrentLogFile();
+
+/**
  * Register a new log category at runtime.
  *
  * The returned handle can be used with REXLOG_CAT_* macros and all

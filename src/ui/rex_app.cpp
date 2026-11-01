@@ -158,6 +158,7 @@ bool ReXApp::SetupEnvironment() {
   // Load config FIRST so log cvars have final values
   if (std::filesystem::exists(config_path_))
     rex::cvar::LoadConfig(config_path_);
+  OnConfigLoaded();
 
   std::string log_level_str = REXCVAR_GET(log_level);
   if (REXCVAR_GET(log_verbose) && log_level_str == "info")
@@ -165,8 +166,12 @@ bool ReXApp::SetupEnvironment() {
 
   auto log_config =
       rex::BuildLogConfig(log_level_str, rex::ParseCategoryLevelsFromConfig(config_path_));
-  log_config.app_name = std::string(GetName());
-  log_config.log_dir = exe_dir / "logs";
+  // log_level "off" without a log_file: no log file at all (an empty one would still be created
+  // at every start).
+  if (log_level_str != "off") {
+    log_config.app_name = std::string(GetName());
+    log_config.log_dir = exe_dir / "logs";
+  }
   OnConfigureLogging(log_config);
   rex::ApplyLogCvarOverrides(log_config);
   rex::InitLogging(log_config);
@@ -493,7 +498,14 @@ void ReXApp::LaunchModule() {
     }
 
     OnPostLaunchModule(main_thread.get());
-    main_thread->Resume();
+    // The thread object lives on in module_thread_ below, which waits for it to end. A held start
+    // resumes it later, on the UI thread like the immediate one.
+    system::XThread* const held = main_thread.get();
+    if (!OnHoldModuleLaunch([this, held]() {
+          app_context().CallInUIThreadDeferred([held]() { held->Resume(); });
+        })) {
+      main_thread->Resume();
+    }
 
     module_thread_ = std::thread([this, main_thread = std::move(main_thread)]() mutable {
       main_thread->Wait(0, 0, 0, nullptr);

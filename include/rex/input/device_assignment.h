@@ -28,13 +28,17 @@ class DeviceAssignment {
   virtual void DevicesForUser(uint32_t user_index, std::vector<DeviceId>& out) const = 0;
 };
 
-/// Device ordinal N feeds guest user N. Synthetic devices feed user 0.
+/// Device ordinal N feeds guest user N + first_pad_user. Synthetic devices (keyboard and mouse)
+/// feed user 0: with first_pad_user = 1 they are player 1 on their own and the pads are players
+/// 2-4.
 class SlotAssignment final : public DeviceAssignment {
  public:
+  explicit SlotAssignment(uint32_t first_pad_user = 0) : first_pad_user_(first_pad_user) {}
   void OnDevicesChanged(const std::vector<DeviceInfo>& devices) override;
   void DevicesForUser(uint32_t user_index, std::vector<DeviceId>& out) const override;
 
  private:
+  uint32_t first_pad_user_ = 0;
   std::vector<std::vector<DeviceId>> users_ = std::vector<std::vector<DeviceId>>(kMaxGuestUsers);
 };
 

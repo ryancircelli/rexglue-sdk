@@ -10,6 +10,9 @@
  */
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
+
 namespace rex::audio {
 
 /**
@@ -61,5 +64,44 @@ SurroundMix GetSurroundMix();
 /// 1.0 is unity. Above unity can clip, and the output stage clamps.
 void SetOutputGain(float linear);
 float GetOutputGain();
+
+/// Speaker layout of the output stage (audio_output option).
+enum class OutputLayout { kStereo, kHeadphones, kSurround51, kSurround71 };
+
+/**
+ * Binaural rendering of the guest 5.1 mix for headphones. Every speaker becomes a virtual source at
+ * its standard angle (front 30 degrees, center 0, surround 110): the far ear hears it later
+ * (interaural time difference, Woodworth model) and duller (head shadow low-pass), and the
+ * surrounds lose some treble at both ears (rear cue). Stateful: one instance per output stream.
+ */
+class HeadphoneVirtualizer {
+ public:
+  /// in: interleaved fl fr fc lf bl br; out: interleaved l r, clamped to [-1, 1].
+  void Process(const float* in, float* out, size_t frames);
+
+ private:
+  static constexpr size_t kHistory = 64;  // longer than the longest delay, power of two
+  float history_[4][kHistory] = {};       // fl fr bl br
+  size_t pos_ = 0;
+  float front_far_[2] = {};  // fl -> right ear, fr -> left ear
+  float rear_near_[2] = {};  // bl -> left ear, br -> right ear
+  float rear_far_[2] = {};   // bl -> right ear, br -> left ear
+};
+
+/// 5.1 -> 7.1 (SDL/Windows order fl fr fc lf bl br sl sr): each 5.1 surround is spread over the
+/// side and back speakers at -3 dB, keeping its power and placing it between them (about 110
+/// degrees, where 5.1 surrounds belong) instead of only behind the listener.
+void Upmix51To71(const float* in, float* out, size_t frames);
+
+/// Output latency estimate in milliseconds: guest frames waiting to play plus the audio queued in
+/// the output stream and the device buffer. Updated by the output stage on every callback.
+void SetOutputLatencyMs(float ms);
+float GetOutputLatencyMs();
+
+/// Device callbacks that found no guest audio to play (silence was output instead: a gap). Counts
+/// from startup; the game itself sends silence frames when nothing plays, so only a rising count
+/// during gameplay means the queue ran dry.
+void CountOutputUnderrun();
+uint64_t GetOutputUnderruns();
 
 }  // namespace rex::audio

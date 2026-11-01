@@ -12,6 +12,7 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -214,12 +215,18 @@ class UserProfile {
     }
   };
 
-  UserProfile();
+  /// user_index 0 is the main profile; 1-3 are further local (split screen) profiles.
+  explicit UserProfile(uint32_t user_index = 0);
 
   uint64_t xuid() const { return xuid_; }
-  std::string name() const { return name_; }
+  std::string name() const;
+  /// Renames the profile (any thread): the game gets the new name the next time it asks
+  /// (XamUserGetName, XamUserGetSigninInfo). Names of users 1-3 are sanitized.
+  void set_name(std::string name);
   uint32_t signin_state() const { return 1; }
-  uint32_t type() const { return 1 | 2; /* local | online profile? */ }
+  /// Only the main profile reports itself as an online-capable profile.
+  uint32_t type() const { return user_index_ == 0 ? 1 | 2 : 1; }
+  uint32_t user_index() const { return user_index_; }
 
   void set_kernel_state(KernelState* ks) { kernel_state_ = ks; }
 
@@ -227,7 +234,9 @@ class UserProfile {
   Setting* GetSetting(uint32_t setting_id);
 
  private:
+  const uint32_t user_index_;
   uint64_t xuid_;
+  mutable std::mutex name_mutex_;
   std::string name_;
   std::vector<std::unique_ptr<Setting>> setting_list_;
   std::unordered_map<uint32_t, Setting*> settings_;

@@ -788,6 +788,8 @@ class PrimitiveProcessor {
   std::mutex cache_mutex_;
   // Modified by both the processor and the invalidation callback.
   std::unordered_map<CacheKey, size_t, CacheKey::Hasher> cache_map_;
+  // Conversions with primitive restart also depend on the value of their restart index.
+  uint32_t cache_primitive_reset_index_ = 0;
   // The conversion is performed while the lock is released since it may take a
   // long time.
   // If during the conversion the region currently being converted is

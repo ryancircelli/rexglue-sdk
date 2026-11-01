@@ -1335,6 +1335,16 @@ PrimitiveProcessor::CacheTransaction::CacheTransaction(PrimitiveProcessor& proce
   if (!key_.count) {
     return;
   }
+  if (key_.is_reset_enabled) {
+    const uint32_t reset_index =
+        processor_.register_file_.Get<reg::VGT_MULTI_PRIM_IB_RESET_INDX>().reset_indx;
+    if (processor_.cache_primitive_reset_index_ != reset_index) {
+      // The compact key does not include the reset index. Drop the previous
+      // conversions before looking up a result with a different meaning.
+      processor_.ClearPerFrameCache();
+      processor_.cache_primitive_reset_index_ = reset_index;
+    }
+  }
   uint32_t size_bytes =
       (key_.format == xenos::IndexFormat::kInt16 ? sizeof(uint16_t) : sizeof(uint32_t)) *
       key_.count;
@@ -1372,10 +1382,12 @@ PrimitiveProcessor::CacheTransaction::~CacheTransaction() {
 
   std::lock_guard<std::mutex> cache_lock(processor_.cache_mutex_);
 
+  // A write during the conversion invalidates the result for later uses.
+  const bool conversion_still_valid = processor_.cache_currently_processing_size_bytes_ != 0;
   processor_.cache_currently_processing_base_ = 0;
   processor_.cache_currently_processing_size_bytes_ = 0;
 
-  if (result_type_ == ResultType::kNewSet) {
+  if (result_type_ == ResultType::kNewSet && conversion_still_valid) {
     size_t new_entry_index;
     if (processor_.cache_bucket_free_first_entry_ != SIZE_MAX) {
       new_entry_index = processor_.cache_bucket_free_first_entry_;
@@ -1444,6 +1456,14 @@ std::pair<uint32_t, uint32_t> PrimitiveProcessor::MemoryInvalidationCallback(
   uint32_t bucket_l2_bits_index_first = bucket_index_first >> 12;
   uint32_t bucket_l2_bits_index_last = bucket_index_last >> 12;
   std::lock_guard<std::mutex> cache_lock(cache_mutex_);
+  // The entry being converted is not linked into the buckets yet.
+  if (cache_currently_processing_size_bytes_ &&
+      cache_currently_processing_base_ < physical_address_end &&
+      cache_currently_processing_base_ + cache_currently_processing_size_bytes_ >
+          physical_address_start) {
+    cache_currently_processing_size_bytes_ = 0;
+    any_invalidated = true;
+  }
   for (uint32_t bucket_l2_bits_index = bucket_l2_bits_index_first;
        bucket_l2_bits_index <= bucket_l2_bits_index_last; ++bucket_l2_bits_index) {
     uint64_t bucket_l2_bits_mask = UINT64_MAX;
@@ -1501,7 +1521,7 @@ std::pair<uint32_t, uint32_t> PrimitiveProcessor::MemoryInvalidationCallback(
           // the specified range.
           if (entry_key.base < physical_address_end) {
             uint32_t entry_end = entry_key.base + entry_key.GetSizeBytes();
-            if (entry_end > physical_address_end) {
+            if (entry_end > physical_address_start) {
               // Invalidate the entry.
               any_invalidated = true;
               // Remove the entry from the cache map.

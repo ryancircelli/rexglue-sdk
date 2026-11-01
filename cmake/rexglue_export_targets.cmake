@@ -4,7 +4,9 @@ set_target_properties(rexui PROPERTIES EXPORT_NAME ui)
 set_target_properties(rexinput PROPERTIES EXPORT_NAME input)
 set_target_properties(rexaudio PROPERTIES EXPORT_NAME audio)
 set_target_properties(rexruntime PROPERTIES EXPORT_NAME runtime)
-set_target_properties(rexcodegen PROPERTIES EXPORT_NAME codegen)
+if(TARGET rexcodegen)
+    set_target_properties(rexcodegen PROPERTIES EXPORT_NAME codegen)
+endif()
 
 set(REXGLUE_INSTALL_TARGETS
     rexruntime

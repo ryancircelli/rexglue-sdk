@@ -9,6 +9,7 @@
  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
  */
 
+#include <cstddef>
 #include <cstring>
 
 #include <rex/kernel/xam/module.h>
@@ -32,6 +33,16 @@
 #endif
 
 namespace rex::system {
+
+// The native address structs are cast to the host's sockaddr types (see xsocket.h).
+static_assert(sizeof(N_XSOCKADDR) == sizeof(sockaddr));
+static_assert(sizeof(N_XSOCKADDR_IN) == sizeof(sockaddr_in));
+static_assert(offsetof(N_XSOCKADDR, address_family) == offsetof(sockaddr, sa_family));
+static_assert(sizeof(N_XSOCKADDR::address_family) == sizeof(sockaddr::sa_family));
+static_assert(offsetof(N_XSOCKADDR_IN, sin_family) == offsetof(sockaddr_in, sin_family));
+static_assert(sizeof(N_XSOCKADDR_IN::sin_family) == sizeof(sockaddr_in::sin_family));
+static_assert(offsetof(N_XSOCKADDR_IN, sin_port) == offsetof(sockaddr_in, sin_port));
+static_assert(offsetof(N_XSOCKADDR_IN, sin_addr) == offsetof(sockaddr_in, sin_addr));
 
 XSocket::XSocket(KernelState* kernel_state) : XObject(kernel_state, kObjectType) {}
 

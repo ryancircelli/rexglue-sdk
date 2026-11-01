@@ -12,9 +12,15 @@
 #pragma once
 #include <filesystem>
 #include <string>
+#include <vector>
 #include <rex/ui/imgui_dialog.h>
 
 namespace rex::ui {
+
+// Removes cvars that do nothing in the app's configuration from the settings menu (for example
+// the Xenos emulation's ones when the app's own renderer draws). They are only hidden: the command
+// line and the configuration file still read them. Can be called at any time; calls accumulate.
+void HideSettingsInMenu(const std::vector<std::string>& names);
 
 class SettingsDialog : public ImGuiDialog {
  public:

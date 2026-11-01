@@ -100,6 +100,8 @@ class XFile : public XObject {
                  uint32_t* out_bytes_written, uint32_t apc_context);
 
   X_STATUS SetLength(size_t length);
+  // What NtFlushBuffersFile asks for. It does not touch the file position or state.
+  X_STATUS Flush() { return file_->Flush(); }
   X_STATUS Rename(const std::filesystem::path& file_path);
 
   void RegisterIOCompletionPort(uint32_t key, object_ref<XIOCompletion> port);

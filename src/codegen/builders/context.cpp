@@ -69,9 +69,16 @@ std::string BuilderContext::f(size_t index) {
   return fmt::format("ctx.f{}", index);
 }
 
+// The scratch vector registers, v0 and v32-v63 (VMX128's volatile half), are never arguments or return values: a
+// function may keep them in locals whatever it calls, since no callee reads them and the caller cannot count on
+// them after a call. v1 is not one: titles pass vectors in it (Black Ops II has 55 functions that read it as an
+// input). A split piece (share_registers) still reads its owner's through ctx.
 std::string BuilderContext::v(size_t index) {
   const auto& cfg = config();
-  if ((cfg.nonArgumentRegistersAsLocalVariables && (index >= 32 && index <= 63)) ||
+  const bool vmx128_volatile = index >= 32 && index <= 63;
+  const bool scratch = index == 0 || vmx128_volatile;
+  if ((cfg.nonArgumentRegistersAsLocalVariables && vmx128_volatile) ||
+      (cfg.vectorScratchRegistersAsLocalVariables && scratch && !fn.sharesRegisters()) ||
       (localizeNonVolatiles() && ((index >= 14 && index <= 31) || (index >= 64 && index <= 127)))) {
     locals.v[index] = true;
     return fmt::format("v{}", index);

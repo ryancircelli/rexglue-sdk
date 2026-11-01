@@ -89,6 +89,7 @@ nlohmann::json buildTemplateData(const rex::codegen::CodegenContext& ctx,
       {"cr_as_local", cfg.crRegistersAsLocalVariables},
       {"non_argument_as_local", cfg.nonArgumentRegistersAsLocalVariables},
       {"non_volatile_as_local", cfg.nonVolatileRegistersAsLocalVariables},
+      {"vector_scratch_as_local", cfg.vectorScratchRegistersAsLocalVariables},
   };
 
   return {

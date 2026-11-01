@@ -96,6 +96,10 @@ struct RecompilerConfig {
   bool crRegistersAsLocalVariables = false;
   bool nonArgumentRegistersAsLocalVariables = false;
   bool nonVolatileRegistersAsLocalVariables = false;
+  /// The scratch vector registers as locals: v0 and v32-v63 (volatile, never an argument or a
+  /// return value; v1 is left out because titles pass vectors in it), without
+  /// nonArgumentRegistersAsLocalVariables' r0/r2/r11/r12 and f0 (r12 is __savevmx_N's base).
+  bool vectorScratchRegistersAsLocalVariables = false;
   bool generateExceptionHandlers = false;  ///< Generate SEH exception handler wrappers
 
   // === Analysis tuning (optional) ===

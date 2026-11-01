@@ -14,8 +14,20 @@
 #include <queue>
 
 #include <rex/math.h>
+#include <rex/platform.h>
 #include <rex/system/xobject.h>
 #include <rex/types.h>
+
+// N_XSOCKADDR and N_XSOCKADDR_IN are passed straight to the host's bind/connect and filled by
+// accept, so they must have the host's struct sockaddr layout. Linux and Windows start with a
+// 16-bit family. macOS, like the other BSD-derived stacks, starts with an 8-bit length
+// (sa_len/sin_len) followed by an 8-bit family (xnu bsd/sys/socket.h, bsd/netinet/in.h). With the
+// 16-bit layout AF_INET (2) lands in the length byte and the family reads as 0 (AF_UNSPEC).
+#if REX_PLATFORM_MAC
+#define REX_XSOCKADDR_BSD_LAYOUT 1
+#else
+#define REX_XSOCKADDR_BSD_LAYOUT 0
+#endif
 
 namespace rex::system {
 
@@ -28,12 +40,22 @@ struct N_XSOCKADDR {
   N_XSOCKADDR() {}
   N_XSOCKADDR(const XSOCKADDR* other) { *this = *other; }
   N_XSOCKADDR& operator=(const XSOCKADDR& other) {
+#if REX_XSOCKADDR_BSD_LAYOUT
+    sa_len = uint8_t(sizeof(*this));
+    address_family = uint8_t(uint16_t(other.address_family));
+#else
     address_family = other.address_family;
+#endif
     std::memcpy(sa_data, other.sa_data, rex::countof(sa_data));
     return *this;
   }
 
+#if REX_XSOCKADDR_BSD_LAYOUT
+  uint8_t sa_len;
+  uint8_t address_family;
+#else
   uint16_t address_family;
+#endif
   char sa_data[14];
 };
 
@@ -52,7 +74,12 @@ struct N_XSOCKADDR_IN {
   N_XSOCKADDR_IN() {}
   N_XSOCKADDR_IN(const XSOCKADDR_IN* other) { *this = *other; }
   N_XSOCKADDR_IN& operator=(const XSOCKADDR_IN& other) {
+#if REX_XSOCKADDR_BSD_LAYOUT
+    sin_len = uint8_t(sizeof(*this));
+    sin_family = uint8_t(uint16_t(other.sin_family));
+#else
     sin_family = other.sin_family;
+#endif
     sin_port = other.sin_port;
     sin_addr = other.sin_addr;
     std::memset(x_sin_zero, 0, sizeof(x_sin_zero));
@@ -60,7 +87,12 @@ struct N_XSOCKADDR_IN {
     return *this;
   }
 
+#if REX_XSOCKADDR_BSD_LAYOUT
+  uint8_t sin_len;
+  uint8_t sin_family;
+#else
   uint16_t sin_family;
+#endif
   rex::be<uint16_t> sin_port;
   rex::be<uint32_t> sin_addr;
   // sin_zero is defined as __pad on Android, so prefixed here.

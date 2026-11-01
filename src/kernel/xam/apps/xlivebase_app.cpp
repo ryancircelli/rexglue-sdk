@@ -77,6 +77,14 @@ X_HRESULT XLiveBaseApp::DispatchMessageSync(uint32_t message, uint32_t buffer_pt
       REXKRNL_DEBUG("XPresenceInitialize({:08X}, {:08X})", buffer_ptr, buffer_length);
       return X_E_SUCCESS;
     }
+    case 0x0005800E: {
+      // XUserMuteListQuery: voice chat mute list. Some titles (Call of Duty: Black Ops
+      // multiplayer) poll it constantly; without Xbox Live there is no list. Same result as the
+      // generic path, without logging an error on every call.
+      REXKRNL_DEBUG("XUserMuteListQuery({:08X}, {:08X}) unimplemented", buffer_ptr,
+                    buffer_length);
+      return X_E_FAIL;
+    }
   }
   REXKRNL_ERROR(
       "Unimplemented XLIVEBASE message app={:08X}, msg={:08X}, arg1={:08X}, "

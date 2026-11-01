@@ -18,11 +18,29 @@
 
 #include <algorithm>
 #include <map>
+#include <mutex>
 #include <set>
 #include <string>
 #include <vector>
 
 namespace rex::ui {
+
+// Cvars the app removes from the menu (HideSettingsInMenu).
+namespace {
+std::mutex& MutexSettingsHidden() {
+  static std::mutex mutex;
+  return mutex;
+}
+std::set<std::string>& SettingsHidden() {
+  static std::set<std::string> hidden;
+  return hidden;
+}
+}  // namespace
+
+void HideSettingsInMenu(const std::vector<std::string>& names) {
+  std::lock_guard<std::mutex> lock(MutexSettingsHidden());
+  SettingsHidden().insert(names.begin(), names.end());
+}
 
 SettingsDialog::SettingsDialog(ImGuiDrawer* imgui_drawer, std::filesystem::path config_path)
     : ImGuiDialog(imgui_drawer), config_path_(std::move(config_path)) {}
@@ -158,10 +176,19 @@ static rex::ui::VirtualKey ImGuiKeyToVirtualKey(ImGuiKey key) {
 
 void SettingsDialog::OnDraw(ImGuiIO& /*io*/) {
   auto& registry = rex::cvar::GetRegistry();
+  // Hidden cvars are not listed, and a category with nothing visible does not show either.
+  std::set<std::string> hidden;
+  {
+    std::lock_guard<std::mutex> lock(MutexSettingsHidden());
+    hidden = SettingsHidden();
+  }
 
   // Collect sorted unique category paths.
   std::set<std::string> category_set;
   for (auto& entry : registry) {
+    if (hidden.count(entry.name)) {
+      continue;
+    }
     category_set.insert(entry.category);
   }
 
@@ -240,7 +267,9 @@ void SettingsDialog::OnDraw(ImGuiIO& /*io*/) {
             flags |= ImGuiTreeNodeFlags_Selected;
         }
         bool open = ImGui::TreeNodeEx(node.label.c_str(), flags);
-        if (ImGui::IsItemClicked() && node.has_direct_entries) {
+        // IsItemActivated also covers confirming with the controller; IsItemClicked,
+        // only the mouse.
+        if ((ImGui::IsItemClicked() || ImGui::IsItemActivated()) && node.has_direct_entries) {
           selected_category_ = node.full_path;
         }
         if (open) {
@@ -256,7 +285,7 @@ void SettingsDialog::OnDraw(ImGuiIO& /*io*/) {
   if (selected_category_.empty())
     root_flags |= ImGuiTreeNodeFlags_Selected;
   bool root_open = ImGui::TreeNodeEx(root_label.c_str(), root_flags);
-  if (ImGui::IsItemClicked()) {
+  if (ImGui::IsItemClicked() || ImGui::IsItemActivated()) {
     selected_category_.clear();
   }
   if (root_open) {
@@ -289,8 +318,14 @@ void SettingsDialog::OnDraw(ImGuiIO& /*io*/) {
            (cat.size() > 15 && cat.compare(0, 15, "Input/Keybinds/") == 0);
   };
 
+  // One value panel per category: when the category changes, the controller
+  // enters at its first value and not at a remembered one that is no longer shown.
+  ImGui::PushID(selected_category_.c_str());
   ImGui::BeginChild("##cvars", ImVec2(0, -30.0f), false);
   for (auto& entry : registry) {
+    if (hidden.count(entry.name)) {
+      continue;  // HideSettingsInMenu
+    }
     // Filter by category (unless searching).
     if (!searching) {
       if (!category_matches(entry.category)) {
@@ -499,6 +534,7 @@ void SettingsDialog::OnDraw(ImGuiIO& /*io*/) {
     ImGui::PopID();
   }
   ImGui::EndChild();
+  ImGui::PopID();
 
   // Bottom bar: Save button.
   ImGui::Separator();

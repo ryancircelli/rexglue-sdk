@@ -967,7 +967,9 @@ void ShaderInterpreter::ExecuteVertexFetchInstruction(ucode::VertexFetchInstruct
     }
 
     uint32_t packed_components = 0b0000;
-    uint32_t packed_widths[4], packed_offsets[4];
+    // Offsets start at 0 (the cases below only set the nonzero ones; X and Z of 16_16_16_16 read
+    // uninitialized offsets).
+    uint32_t packed_widths[4] = {}, packed_offsets[4] = {};
     uint32_t packed_dwords[] = {data[0], data[0]};
     switch (instr.data_format()) {
       case xenos::VertexFormat::k_8_8_8_8: {
@@ -1107,7 +1109,10 @@ void ShaderInterpreter::ExecuteVertexFetchInstruction(ucode::VertexFetchInstruct
             continue;
           }
           uint32_t packed_width = packed_widths[i];
-          result[i] = float(packed_dwords[i >> 1] & ((UINT32_C(1) << packed_widths[i]) - 1));
+          // Shifted to the component first (it read the low bits of the dword for every component,
+          // so 16_16_16_16 integer fetches returned X = Y and Z = W).
+          result[i] = float((packed_dwords[i >> 1] >> packed_offsets[i]) &
+                            ((UINT64_C(1) << packed_widths[i]) - 1));
         }
         if (instr.is_normalized()) {
           for (uint32_t i = 0; i < 4; ++i) {

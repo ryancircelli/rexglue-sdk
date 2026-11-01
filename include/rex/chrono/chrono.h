@@ -116,8 +116,10 @@ using XSystemClock = detail::NtSystemClock<detail::Domain::Guest>;
 
 namespace std::chrono {
 
-#ifdef __APPLE__
-// Apple libc++ does not expose clock_time_conversion or clock_cast.
+// C++20's clock_time_conversion and clock_cast come with the calendar and time zone support
+// (__cpp_lib_chrono >= 201907L). Apple's libc++, LLVM's libc++ and libstdc++ before GCC 13 do
+// not have them, so provide the two pieces used here.
+#if !defined(__cpp_lib_chrono) || __cpp_lib_chrono < 201907L
 template <class, class>
 struct clock_time_conversion {};
 

@@ -559,7 +559,11 @@ u32 NetDll_XNetQosRelease_entry(u32 caller, ppc_ptr_t<XNQOS> qos) {
 
 u32 NetDll_XNetQosListen_entry(u32 caller, mapped_void id, mapped_void data, u32 data_size, u32 r7,
                                u32 flags) {
-  return X_ERROR_FUNCTION_FAILED;
+  // Succeed, as Xenia Canary does. Offline there is no one to answer QoS probes for, and Black
+  // Ops II's local lobby treats a failure here as fatal ("Error starting QOS listen on server.
+  // party presence session").
+  REXKRNL_DEBUG("XNetQosListen(data_size {}, bits_per_sec {}, flags {:08X})", data_size, r7, flags);
+  return X_ERROR_SUCCESS;
 }
 
 u32 NetDll_inet_addr_entry(mapped_string addr_ptr) {

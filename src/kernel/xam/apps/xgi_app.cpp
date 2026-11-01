@@ -10,6 +10,10 @@
  */
 
 #include <rex/kernel/xam/apps/xgi_app.h>
+
+#include <cstring>
+#include <random>
+
 #include <rex/logging.h>
 #include <rex/thread.h>
 
@@ -113,6 +117,33 @@ X_HRESULT XgiApp::DispatchMessageSync(uint32_t message, uint32_t buffer_ptr,
           "{:08X})",
           session_ptr, flags, num_slots_public, num_slots_private, user_xuid, session_info_ptr,
           nonce_ptr);
+      // Fill in what a created host session returns, as Xenia Canary does for offline and
+      // system link host sessions (xsession.cc CreateHostSession). Black Ops II never adds the
+      // local player to its party while these stay zero ("Minimum 1 players").
+      //   XSESSION_INFO (0x3C): XNKID sessionID[8], XNADDR hostAddress[0x24],
+      //   XNKEY keyExchangeKey[0x10]; nonce: uint64.
+      // A client (no XSESSION_CREATE_HOST, 0x1) passes the host's session info in: it is left
+      // as it is.
+      {
+        static std::mt19937_64 rng{std::random_device{}()};
+        const bool host = (flags & 1) != 0;
+        if (session_info_ptr && host) {
+          uint8_t* info = memory_->TranslateVirtual(session_info_ptr);
+          uint64_t id = rng() & 0x00FFFFFFFFFFFFFFull;  // XNKID_SYSTEM_LINK (top byte 0)
+          for (int i = 0; i < 8; i++) info[i] = uint8_t(id >> (56 - 8 * i));
+          // The host address, as NetDll_XNetGetTitleXnAddr reports it: ina 127.0.0.1 and
+          // abEnet CC:CC:CC:CC:CC:CC.
+          uint8_t* xnaddr = info + 8;
+          std::memset(xnaddr, 0, 0x24);
+          xnaddr[0] = 127;
+          xnaddr[3] = 1;
+          std::memset(xnaddr + 10, 0xCC, 6);
+          for (int i = 0; i < 16; i++) info[0x2C + i] = uint8_t(rng());
+        }
+        if (nonce_ptr) {
+          memory::store_and_swap<uint64_t>(memory_->TranslateVirtual(nonce_ptr), rng());
+        }
+      }
       return X_E_SUCCESS;
     }
     case 0x000B0011: {
@@ -138,6 +169,14 @@ X_HRESULT XgiApp::DispatchMessageSync(uint32_t message, uint32_t buffer_ptr,
       REXKRNL_DEBUG("{}({:08X}, {}, {}, {:08X}, {:08X})",
                     is_local ? "XGISessionJoinLocal" : "XGISessionJoinRemote", session_ptr,
                     user_count, xuid_array_ptr, user_index_array, private_slots_array);
+      return X_E_SUCCESS;
+    }
+    case 0x000B0013: {
+      // XGISessionLeave (same 20-byte layout as join). Black Ops II sends it from the lobby;
+      // unhandled it returned X_E_FAIL.
+      assert_true(!buffer_length || buffer_length == 20);
+      REXKRNL_DEBUG("XGISessionLeave({:08X}, {})", memory::load_and_swap<uint32_t>(buffer + 0),
+                    memory::load_and_swap<uint32_t>(buffer + 4));
       return X_E_SUCCESS;
     }
     case 0x000B0014: {

@@ -55,6 +55,14 @@ REXCVAR_DEFINE_INT32(
     .range(-1, 32)
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 
+// Off by default: with Call of Duty: Black Ops the placeholder pipelines were never replaced by
+// the real ones, so every frame came out as a constant color. Synchronous creation plus the
+// persistent pipeline storage only stalls the first time a pipeline is seen.
+REXCVAR_DEFINE_BOOL(vulkan_async_pipeline_creation, false, "GPU/Vulkan",
+                    "Create Vulkan pipelines asynchronously with placeholder shaders "
+                    "(experimental; also needs async_shader_compilation)")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+
 REXCVAR_DEFINE_BOOL(vulkan_tessellation_wireframe, false, "GPU/Vulkan",
                     "Render tessellation as wireframe")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
@@ -1111,7 +1119,8 @@ bool VulkanPipelineCache::ConfigurePipeline(
     }
   }
 
-  bool use_async = REXCVAR_GET(async_shader_compilation) && !creation_threads_.empty() &&
+  bool use_async = REXCVAR_GET(async_shader_compilation) &&
+                   REXCVAR_GET(vulkan_async_pipeline_creation) && !creation_threads_.empty() &&
                    pixel_shader && placeholder_pixel_shader_ != VK_NULL_HANDLE;
   uint8_t async_priority = pipeline_util::kPriorityLowest;
   if (use_async) {

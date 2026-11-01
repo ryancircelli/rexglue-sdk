@@ -87,7 +87,7 @@ std::string BuilderContext::v(size_t index) {
 }
 
 std::string BuilderContext::cr(size_t index) {
-  if (config().crRegistersAsLocalVariables) {
+  if (config().crRegistersAsLocalVariables && !fn.sharesRegisters()) {
     locals.cr[index] = true;
     return fmt::format("cr{}", index);
   }
@@ -95,7 +95,7 @@ std::string BuilderContext::cr(size_t index) {
 }
 
 const char* BuilderContext::ctr() {
-  if (config().ctrAsLocalVariable) {
+  if (config().ctrAsLocalVariable && !fn.sharesRegisters()) {
     locals.ctr = true;
     return "ctr";
   }
@@ -103,7 +103,7 @@ const char* BuilderContext::ctr() {
 }
 
 const char* BuilderContext::xer() {
-  if (config().xerAsLocalVariable) {
+  if (config().xerAsLocalVariable && !fn.sharesRegisters()) {
     locals.xer = true;
     return "xer";
   }
@@ -219,17 +219,15 @@ void BuilderContext::emit_function_call(uint32_t address) {
       // the owner left live, so hand it the localized copies through ctx and take
       // them back afterwards. Only registers already localized here can be live at
       // this point, so that set is the whole live-in the funclet can see.
-      if (targetFn->sharesRegisters() && localizeNonVolatiles()) {
-        for (size_t i = 14; i < 32; ++i) {
-          if (locals.r[i])
-            println("\tctx.r{} = r{};", i, i);
-        }
+      if (targetFn->sharesRegisters() && localizesAnything()) {
         emitCtx.reference(name);
-        println("\t{}(ctx, base);", name);
-        for (size_t i = 14; i < 32; ++i) {
-          if (locals.r[i])
-            println("\tr{} = ctx.r{};", i, i);
-        }
+        // A bl comes back here and the caller goes on with its registers; a b (tail
+        // call) is followed by a return, so there is nothing to take back.
+        bool isTail = false;
+        for (const auto& edge : fn.tailCalls())
+          if (edge.site == base)
+            isTail = true;
+        emit_call_sharing_registers(fmt::format("{}(ctx, base);", name), !isTail, "\t");
         return;
       }
 
@@ -283,6 +281,58 @@ void BuilderContext::emit_function_call(uint32_t address) {
   println("\tREX_FATAL(\"Unresolved call from 0x{:08X} to 0x{:08X}\");", base, address);
 }
 
+bool BuilderContext::localizesAnything() const {
+  if (fn.sharesRegisters())
+    return false;
+  const auto& cfg = config();
+  return cfg.nonVolatileRegistersAsLocalVariables || cfg.crRegistersAsLocalVariables ||
+         cfg.ctrAsLocalVariable || cfg.xerAsLocalVariable || cfg.vectorScratchRegistersAsLocalVariables;
+}
+
+void BuilderContext::emit_call_sharing_registers(const std::string& call, bool copyBack,
+                                                 const char* indent) {
+  if (!localizesAnything()) {
+    println("{}{}", indent, call);
+    return;
+  }
+  // Every register the callee may read: those this function has localized so far. A
+  // fragment reads what its owner set up, and the owner set it up before jumping. Copying
+  // only those keeps the cost down on indirect tail jumps, which all go through here.
+  std::vector<std::string> regs;
+  for (size_t i = 14; i < 32; ++i)
+    if (locals.r[i])
+      regs.push_back(r(i));
+  for (size_t i = 14; i < 32; ++i)
+    if (locals.f[i])
+      regs.push_back(f(i));
+  for (size_t i = 0; i < 128; ++i)
+    if (locals.v[i])
+      regs.push_back(v(i));
+  for (size_t i = 0; i < 8; ++i)
+    if (locals.cr[i])
+      regs.push_back(cr(i));
+  if (locals.ctr)
+    regs.push_back(ctr());
+  if (locals.xer)
+    regs.push_back(xer());
+  if (regs.empty()) {
+    println("{}{}", indent, call);
+    return;
+  }
+
+  println("{}{{", indent);
+  for (const auto& reg : regs)
+    println("{}\tconst auto s_{} = ctx.{}; ctx.{} = {};", indent, reg, reg, reg, reg);
+  println("{}\t{}", indent, call);
+  for (const auto& reg : regs) {
+    const bool back = copyBack && (reg[0] == 'r' || reg[0] == 'f' || reg[0] == 'v');
+    if (back)
+      println("{}\t{} = ctx.{};", indent, reg, reg);
+    println("{}\tctx.{} = s_{};", indent, reg, reg);
+  }
+  println("{}}}", indent);
+}
+
 void BuilderContext::emit_conditional_branch(bool not_, std::string_view cond) {
   uint32_t target = insn.operands[1];
 
@@ -305,7 +355,11 @@ void BuilderContext::emit_conditional_branch(bool not_, std::string_view cond) {
           auto* targetFn = callTarget->asFunction();
           emitCtx.reference(targetFn->name());
           println("\tif ({}{}.{}) {{", not_ ? "!" : "", cr(insn.operands[0]), cond);
-          println("\t\t{}(ctx, base);", targetFn->name());
+          if (targetFn->sharesRegisters())
+            emit_call_sharing_registers(fmt::format("{}(ctx, base);", targetFn->name()), false,
+                                        "\t\t");
+          else
+            println("\t\t{}(ctx, base);", targetFn->name());
           println("\t\treturn;");
           println("\t}}");
         } else if (callTarget->isImport()) {

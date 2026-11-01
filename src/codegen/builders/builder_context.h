@@ -232,6 +232,24 @@ struct BuilderContext {
   void emit_function_call(uint32_t address);
 
   /**
+   * @brief Hand this function's localized registers to a callee that reads them from ctx.
+   *
+   * A share_registers callee (an SEH funclet, or a tail fragment the analyzer split off
+   * its owner) reads its owner's live non-volatiles, cr fields, ctr and xer from ctx. With
+   * those localized, ctx does not hold them: copy them in before the call. ctx is put back
+   * afterwards, because a share_registers function higher up the stack keeps its own
+   * non-volatiles there and the callee's epilogue restores nothing it can see.
+   * Nothing is emitted in a function that does not localize anything.
+   * @param call        the C++ statement(s) that make the call
+   * @param copyBack    also take r/f/v back from ctx into the locals (bl, not tail)
+   * @param indent      leading tabs of the emitted lines
+   */
+  void emit_call_sharing_registers(const std::string& call, bool copyBack, const char* indent);
+
+  /// True if this function keeps anything in locals that a sharing callee would need.
+  bool localizesAnything() const;
+
+  /**
    * @brief Emit C++ code for a conditional branch.
    * @param not_ If true, invert the condition
    * @param cond Condition field name ("eq", "lt", "gt")

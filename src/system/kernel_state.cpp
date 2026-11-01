@@ -9,6 +9,7 @@
  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
  */
 
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <filesystem>
@@ -16,6 +17,7 @@
 
 #include <fmt/format.h>
 #include <rex/assert.h>
+#include <rex/cvar.h>
 #include <rex/image_info.h>
 #include <rex/logging.h>
 #include <rex/math.h>
@@ -43,6 +45,14 @@
 #include <rex/system/xthread.h>
 #include <rex/system/xtimer.h>
 
+REXCVAR_DEFINE_INT32(offline_user_count, 1, "Kernel",
+                     "Local offline profiles signed in for the game (1 through 4)")
+    .range(1, 4)
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_STRING(offline_user_name_1, "Player 2", "Kernel",
+                      "Second offline profile's name (up to 15 printable ASCII characters)")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+
 namespace rex::system {
 
 constexpr uint32_t kDeferredOverlappedDelayMillis = 100;
@@ -65,8 +75,11 @@ KernelState::KernelState(Runtime* emulator)
   file_system_ = emulator->file_system();
 
   app_manager_ = std::make_unique<xam::AppManager>();
-  user_profile_ = std::make_unique<xam::UserProfile>();
-  user_profile_->set_kernel_state(this);
+  for (uint32_t i = 0; i < kMaxLocalUsers; ++i) {
+    user_profiles_[i] = std::make_unique<xam::UserProfile>(i);
+    user_profiles_[i]->set_kernel_state(this);
+  }
+  user_profiles_[1]->set_name(REXCVAR_GET(offline_user_name_1));
 
   auto user_data_root = emulator_->user_data_root();
   if (!user_data_root.empty()) {
@@ -1097,8 +1110,8 @@ void KernelState::RegisterNotifyListener(XNotifyListener* listener) {
     listener->EnqueueNotification(0x00000009, 1);
     listener->EnqueueNotification(0x00000009, 0);
     // XN_SYS_SIGNINCHANGED x2
-    listener->EnqueueNotification(0x0000000A, 1);
-    listener->EnqueueNotification(0x0000000A, 1);
+    listener->EnqueueNotification(0x0000000A, signed_in_user_mask());
+    listener->EnqueueNotification(0x0000000A, signed_in_user_mask());
     // XN_SYS_INPUTDEVICESCHANGED x2
     listener->EnqueueNotification(0x00000012, 0);
     listener->EnqueueNotification(0x00000012, 0);
@@ -1397,6 +1410,32 @@ const char* KernelState::GetOrCreateFiberName(uint32_t guest_addr, const char* t
   const char* ptr = buf.get();
   fiber_name_pool_.emplace(guest_addr, std::move(buf));
   return ptr;
+}
+
+bool KernelState::IsUserSignedIn(uint32_t user_index) const {
+  if (user_index >= kMaxLocalUsers) {
+    return false;
+  }
+  return user_index < uint32_t(std::clamp(REXCVAR_GET(offline_user_count), 1, int(kMaxLocalUsers)));
+}
+
+uint32_t KernelState::signed_in_user_mask() const {
+  uint32_t mask = 0;
+  for (uint32_t i = 0; i < kMaxLocalUsers; ++i) {
+    if (IsUserSignedIn(i)) {
+      mask |= 1u << i;
+    }
+  }
+  return mask;
+}
+
+xam::UserProfile* KernelState::user_profile_by_xuid(uint64_t xuid) const {
+  for (uint32_t i = 0; i < kMaxLocalUsers; ++i) {
+    if (user_profiles_[i]->xuid() == xuid && IsUserSignedIn(i)) {
+      return user_profiles_[i].get();
+    }
+  }
+  return nullptr;
 }
 
 }  // namespace rex::system

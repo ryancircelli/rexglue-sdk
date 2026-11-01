@@ -10,6 +10,7 @@
  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
  */
 
+#include <array>
 #include <atomic>
 #include <condition_variable>
 #include <filesystem>
@@ -199,7 +200,18 @@ class KernelState {
 
   xam::AppManager* app_manager() const { return app_manager_.get(); }
   xam::ContentManager* content_manager() const { return content_manager_.get(); }
-  xam::UserProfile* user_profile() const { return user_profile_.get(); }
+  /// Profile of a local user (0-3), or nullptr when that user is not signed in.
+  xam::UserProfile* user_profile(uint32_t user_index = 0) const {
+    return IsUserSignedIn(user_index) ? user_profiles_[user_index].get() : nullptr;
+  }
+  /// The signed in local profile with this XUID, or nullptr.
+  xam::UserProfile* user_profile_by_xuid(uint64_t xuid) const;
+  /// User 0 is always signed in. Users 1 to offline_user_count - 1 are signed in to their own
+  /// offline profile.
+  bool IsUserSignedIn(uint32_t user_index) const;
+  uint32_t signed_in_user_mask() const;
+
+  static constexpr uint32_t kMaxLocalUsers = 4;
 
   // Access must be guarded by the global critical region.
   util::ObjectTable* object_table() { return &object_table_; }
@@ -353,7 +365,7 @@ class KernelState {
 
   std::unique_ptr<xam::AppManager> app_manager_;
   std::unique_ptr<xam::ContentManager> content_manager_;
-  std::unique_ptr<xam::UserProfile> user_profile_;
+  std::array<std::unique_ptr<xam::UserProfile>, kMaxLocalUsers> user_profiles_;
 
   rex::thread::global_critical_region global_critical_region_;
 

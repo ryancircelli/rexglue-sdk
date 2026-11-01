@@ -442,13 +442,29 @@ X_RESULT ContentManager::UnmountAndDeleteContent(uint64_t xuid,
   return X_ERROR_FILE_NOT_FOUND;
 }
 
-std::filesystem::path ContentManager::ResolveGameUserContentPath() {
-  auto title_id = fmt::format("{:08X}", kernel_state_->title_id());
-  auto user_name = rex::to_path(kernel_state_->user_profile()->name());
-
-  // Per-game per-profile data location:
-  // content_root/title_id/profile/user_name
-  return root_path_ / title_id / kGameUserContentDirName / user_name;
+std::filesystem::path ContentManager::ResolveGameUserContentPath(uint64_t xuid) {
+  // Per-game per-profile data location: content_root/title_id/profile/<XUID>. It used to be the
+  // profile's name, so renaming a profile started an empty one in a new folder, and two local
+  // profiles with the same name shared one. A folder under the profile's current name (the
+  // old layout) becomes the XUID folder the first time it is looked up.
+  const auto profiles = root_path_ / fmt::format("{:08X}", kernel_state_->title_id()) /
+                        kGameUserContentDirName;
+  const auto path = profiles / fmt::format("{:016X}", xuid);
+  std::error_code ec;
+  if (!std::filesystem::exists(path, ec)) {
+    const auto* profile = kernel_state_->user_profile_by_xuid(xuid);
+    const auto legacy = profile ? profiles / rex::to_path(profile->name()) : std::filesystem::path();
+    if (!legacy.empty() && std::filesystem::is_directory(legacy, ec)) {
+      std::filesystem::rename(legacy, path, ec);
+      if (ec) {
+        REXSYS_WARN("Profile folder {} could not become {}: {}", rex::path_to_utf8(legacy),
+                    rex::path_to_utf8(path), ec.message());
+        return legacy;
+      }
+      REXSYS_INFO("Profile folder {} is now {}", rex::path_to_utf8(legacy), rex::path_to_utf8(path));
+    }
+  }
+  return path;
 }
 
 std::unordered_map<string::string_key_case, ContentPackage*,

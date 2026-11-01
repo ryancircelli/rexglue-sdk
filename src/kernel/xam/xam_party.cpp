@@ -23,6 +23,8 @@ namespace kernel {
 namespace xam {
 
 u32 XamPartyGetUserList_entry(u32 player_count, mapped_u32 party_list) {
+  // Some titles read the count even when no online party exists.
+  if (party_list) *party_list = 0;
   // 5345085D wants specifically this code to skip loading party data.
   // This code is not documented in NT_STATUS code list
   return 0x807D0003;

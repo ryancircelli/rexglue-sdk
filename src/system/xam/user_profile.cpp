@@ -21,12 +21,38 @@ namespace rex {
 namespace system {
 namespace xam {
 
-UserProfile::UserProfile() {
+std::string UserProfile::name() const {
+  std::lock_guard lock(name_mutex_);
+  return name_;
+}
+
+void UserProfile::set_name(std::string name) {
+  std::lock_guard lock(name_mutex_);
+  if (user_index_ != 0) {
+    // What a gamertag may hold: printable ASCII without the characters titles treat as markup,
+    // at most 15. A name left empty falls back to "Player N".
+    std::string clean;
+    for (const char c : name) {
+      if (c >= 32 && c < 127 && std::string_view("\";\\%^@").find(c) == std::string_view::npos)
+        clean += c;
+      if (clean.size() == 15)
+        break;
+    }
+    const auto first = clean.find_first_not_of(' ');
+    name = first == std::string::npos
+               ? "Player " + std::to_string(user_index_ + 1)
+               : clean.substr(first, clean.find_last_not_of(' ') - first + 1);
+  }
+  name_ = std::move(name);
+}
+
+UserProfile::UserProfile(uint32_t user_index) : user_index_(user_index) {
   // 58410A1F checks the user XUID against a mask of 0x00C0000000000000 (3<<54),
   // if non-zero, it prevents the user from playing the game.
   // "You do not have permissions to perform this operation."
-  xuid_ = 0xB13EBABEBABEBABE;
-  name_ = "User";
+  // Every local user gets its own XUID; only the low bits change, so the mask stays clear.
+  xuid_ = 0xB13EBABEBABEBABE + user_index;
+  name_ = user_index == 0 ? "User" : "Player " + std::to_string(user_index + 1);
 
   // https://cs.rin.ru/forum/viewtopic.php?f=38&t=60668&hilit=gfwl+live&start=195
   // https://github.com/arkem/py360/blob/master/py360/constants.py
@@ -133,7 +159,7 @@ UserProfile::Setting* UserProfile::GetSetting(uint32_t setting_id) {
 
 void UserProfile::LoadSetting(UserProfile::Setting* setting) {
   if (setting->is_title_specific()) {
-    auto content_dir = kernel_state_->content_manager()->ResolveGameUserContentPath();
+    auto content_dir = kernel_state_->content_manager()->ResolveGameUserContentPath(xuid_);
     auto setting_id = fmt::format("{:08X}", setting->setting_id);
     auto file_path = content_dir / setting_id;
     auto file = rex::filesystem::OpenFile(file_path, "rb");
@@ -158,7 +184,7 @@ void UserProfile::LoadSetting(UserProfile::Setting* setting) {
 void UserProfile::SaveSetting(UserProfile::Setting* setting) {
   if (setting->is_title_specific()) {
     auto serialized_setting = setting->Serialize();
-    auto content_dir = kernel_state_->content_manager()->ResolveGameUserContentPath();
+    auto content_dir = kernel_state_->content_manager()->ResolveGameUserContentPath(xuid_);
     std::filesystem::create_directories(content_dir);
     auto setting_id = fmt::format("{:08X}", setting->setting_id);
     auto file_path = content_dir / setting_id;

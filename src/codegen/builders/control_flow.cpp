@@ -12,6 +12,7 @@
 #include "builder_context.h"
 #include "helpers.h"
 
+#include <algorithm>
 #include <fmt/format.h>
 
 #include <rex/logging.h>
@@ -122,6 +123,17 @@ bool build_bctr(BuilderContext& ctx) {
         break;
       }
     }
+  }
+
+  // A "table" whose targets are all null is not a jump table: the analysis took a call through a table of function
+  // pointers (lwzx from the table, mtctr, bctr) for one, and every case would trap. It is the indirect tail call below.
+  if (jt && !jt->targets.empty() &&
+      std::all_of(jt->targets.begin(), jt->targets.end(), [](auto label) { return label == 0; })) {
+    REXCODEGEN_WARN("bctr at 0x{:08X}: every target of its jump table is null; emitted as an indirect tail call",
+                    ctx.base);
+    if (ctx.activeJumpTable)
+      ctx.reset_switch_table();
+    jt = nullptr;
   }
 
   if (jt) {

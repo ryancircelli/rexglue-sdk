@@ -23,8 +23,8 @@ void SlotAssignment::OnDevicesChanged(const std::vector<DeviceInfo>& devices) {
   for (const auto& device : devices) {
     if (device.synthetic) {
       users_[0].push_back(device.id);
-    } else if (device.ordinal < kMaxGuestUsers) {
-      users_[device.ordinal].push_back(device.id);
+    } else if (device.ordinal + first_pad_user_ < kMaxGuestUsers) {
+      users_[device.ordinal + first_pad_user_].push_back(device.id);
     }
   }
 }

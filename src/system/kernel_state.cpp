@@ -49,6 +49,9 @@ REXCVAR_DEFINE_INT32(offline_user_count, 1, "Kernel",
                      "Local offline profiles signed in for the game (1 through 4)")
     .range(1, 4)
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_BOOL(xam_split_screen_profiles, false, "Kernel",
+                    "Sign in a local offline profile for users 2-4 while a controller is "
+                    "connected to their slot (split screen)");
 REXCVAR_DEFINE_STRING(offline_user_name_1, "Player 2", "Kernel",
                       "Second offline profile's name (up to 15 printable ASCII characters)")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
@@ -1416,7 +1419,25 @@ bool KernelState::IsUserSignedIn(uint32_t user_index) const {
   if (user_index >= kMaxLocalUsers) {
     return false;
   }
-  return user_index < uint32_t(std::clamp(REXCVAR_GET(offline_user_count), 1, int(kMaxLocalUsers)));
+  if (user_index < uint32_t(std::clamp(REXCVAR_GET(offline_user_count), 1, int(kMaxLocalUsers)))) {
+    return true;
+  }
+  return REXCVAR_GET(xam_split_screen_profiles) &&
+         ((input_user_mask_.load(std::memory_order_relaxed) >> user_index) & 1);
+}
+
+void KernelState::OnInputUsersChanged(uint32_t connected_mask) {
+  input_user_mask_.store(connected_mask, std::memory_order_relaxed);
+  // XN_SYS_INPUTDEVICESCHANGED: a controller was connected or removed.
+  BroadcastNotification(0x00000012, 0);
+  const uint32_t signin_mask = signed_in_user_mask();
+  if (notified_signin_mask_.exchange(signin_mask) != signin_mask) {
+    REXSYS_INFO("Local users signed in: {}{}{}{}", (signin_mask & 1) ? "1 " : "",
+                (signin_mask & 2) ? "2 " : "", (signin_mask & 4) ? "3 " : "",
+                (signin_mask & 8) ? "4" : "");
+    // XN_SYS_SIGNINCHANGED: like a profile signing in or out with its controller on the console.
+    BroadcastNotification(0x0000000A, signin_mask);
+  }
 }
 
 uint32_t KernelState::signed_in_user_mask() const {

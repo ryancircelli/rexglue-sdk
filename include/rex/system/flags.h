@@ -28,3 +28,4 @@ REXCVAR_DECLARE(bool, writable_code_segments);
 REXCVAR_DECLARE(bool, protect_zero);
 REXCVAR_DECLARE(bool, protect_on_release);
 REXCVAR_DECLARE(bool, scribble_heap);
+REXCVAR_DECLARE(bool, xam_split_screen_profiles);

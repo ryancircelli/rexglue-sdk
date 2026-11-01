@@ -207,9 +207,14 @@ class KernelState {
   /// The signed in local profile with this XUID, or nullptr.
   xam::UserProfile* user_profile_by_xuid(uint64_t xuid) const;
   /// User 0 is always signed in. Users 1 to offline_user_count - 1 are signed in to their own
-  /// offline profile.
+  /// offline profile, and with xam_split_screen_profiles so is every user with a controller
+  /// connected to their slot.
   bool IsUserSignedIn(uint32_t user_index) const;
   uint32_t signed_in_user_mask() const;
+  /// Called by the input system when the set of users with a controller changes (bit N = user
+  /// N): sends XN_SYS_INPUTDEVICESCHANGED, and XN_SYS_SIGNINCHANGED if that signs a user in or
+  /// out.
+  void OnInputUsersChanged(uint32_t connected_mask);
 
   static constexpr uint32_t kMaxLocalUsers = 4;
 
@@ -366,6 +371,8 @@ class KernelState {
   std::unique_ptr<xam::AppManager> app_manager_;
   std::unique_ptr<xam::ContentManager> content_manager_;
   std::array<std::unique_ptr<xam::UserProfile>, kMaxLocalUsers> user_profiles_;
+  std::atomic<uint32_t> input_user_mask_{0};
+  std::atomic<uint32_t> notified_signin_mask_{1};
 
   rex::thread::global_critical_region global_critical_region_;
 

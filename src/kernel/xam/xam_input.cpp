@@ -188,7 +188,8 @@ i32 XamUserGetDeviceContext_entry(u32 user_index, u32 unk, mapped_u32 out_ptr) {
   // If this function fails they assume zero, so let's fail AND
   // set zero just to be safe.
   *out_ptr = 0;
-  if (!user_index || (user_index & 0xFF) == 0xFF) {
+  if ((user_index & 0xFF) == 0xFF ||
+      (user_index < 4 && REX_KERNEL_STATE()->IsUserSignedIn(user_index))) {
     return X_E_SUCCESS;
   } else {
     return X_E_DEVICE_NOT_CONNECTED;

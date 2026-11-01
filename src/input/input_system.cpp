@@ -29,6 +29,13 @@
 REXCVAR_DEFINE_STRING(input_backend, "sdl", "Input", "Input backend: sdl, xinput")
     .allowed({"sdl", "xinput"});
 
+REXCVAR_DEFINE_UINT32(input_first_pad_user, 0, "Input",
+                      "Guest user of the first controller: 0 = keyboard/mouse and the first "
+                      "controller are both player 1; 1 = keyboard/mouse is player 1 and the "
+                      "controllers are players 2-4")
+    .range(0, 1)
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+
 REXCVAR_DEFINE_BOOL(guide_button, false, "Input", "Enable guide button pass-through");
 
 REXCVAR_DEFINE_BOOL(vibration, true, "Input", "Enable controller vibration");
@@ -90,6 +97,7 @@ void InputSystem::SetDeviceAssignment(std::unique_ptr<DeviceAssignment> assignme
   if (assignment_) {
     assignment_->OnDevicesChanged(devices_);
   }
+  UpdateAssignedUsers();
 }
 
 void InputSystem::RefreshDevices() {
@@ -177,6 +185,37 @@ void InputSystem::RefreshDevices() {
 
   if (changed && assignment_) {
     assignment_->OnDevicesChanged(devices_);
+  }
+  if (changed) {
+    UpdateAssignedUsers();
+  }
+}
+
+void InputSystem::UpdateAssignedUsers() {
+  uint32_t mask = 0;
+  if (assignment_) {
+    std::vector<DeviceId> ids;
+    for (uint32_t user = 0; user < kMaxGuestUsers; ++user) {
+      assignment_->DevicesForUser(user, ids);
+      for (DeviceId id : ids) {
+        const DeviceInfo* info = DeviceInfoFor(id);
+        // Player 1 is always present (keyboard/mouse or the stand-in device); the other players
+        // only with a real controller.
+        if (info && (user == 0 || !info->synthetic)) {
+          mask |= 1u << user;
+          break;
+        }
+      }
+    }
+  }
+  if (assigned_user_mask_ == mask) {
+    return;
+  }
+  assigned_user_mask_ = mask;
+  REXLOG_INFO("Input: players with a controller: {}{}{}{}", (mask & 1) ? "1 " : "",
+              (mask & 2) ? "2 " : "", (mask & 4) ? "3 " : "", (mask & 8) ? "4" : "");
+  if (auto* kernel_state = REX_KERNEL_STATE()) {
+    kernel_state->OnInputUsersChanged(mask);
   }
 }
 
@@ -518,7 +557,8 @@ std::unique_ptr<InputSystem> CreateDefaultInputSystem(bool tool_mode) {
   // NOP driver (primary in tool mode, fallback otherwise)
   uint8_t nop_index = tool_mode ? 0 : 1;
   input->AddDriver(std::make_unique<nop::NopInputDriver>(nullptr, nop_index));
-  input->SetDeviceAssignment(std::make_unique<SlotAssignment>());
+  input->SetDeviceAssignment(
+      std::make_unique<SlotAssignment>(std::min<uint32_t>(REXCVAR_GET(input_first_pad_user), 1)));
   return input;
 }
 

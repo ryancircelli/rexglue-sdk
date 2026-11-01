@@ -199,7 +199,8 @@ bool VulkanPrimitiveProcessor::InitializeBuiltinIndexBuffer(
     return false;
   }
   fill_callback(mapping);
-  ui::vulkan::util::FlushMappedMemoryRange(vulkan_device, builtin_index_buffer_memory_,
+  // Make the memory the CPU filled visible before copying it to the index buffer.
+  ui::vulkan::util::FlushMappedMemoryRange(vulkan_device, builtin_index_buffer_upload_memory_,
                                            upload_memory_type);
   dfn.vkUnmapMemory(device, builtin_index_buffer_upload_memory_);
 

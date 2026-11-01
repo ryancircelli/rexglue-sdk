@@ -56,6 +56,15 @@ X_STATUS HostPathEntry::Open(uint32_t desired_access, File** out_file) {
     REXFS_ERROR("Attempting to open file for write access on read-only device");
     return X_STATUS_ACCESS_DENIED;
   }
+  // Opening a directory is legal on the console: titles do it to enumerate it, or open the root
+  // of a save container right after mounting it to check it is there. A host file handle cannot
+  // be opened on a folder, and the NO_SUCH_FILE that came back reads to the title as an unusable
+  // save ("damaged profile" on load). A File without a handle is enough: QueryDirectory walks the
+  // entry tree, and reads and writes on it are refused.
+  if (attributes_ & kFileAttributeDirectory) {
+    *out_file = new HostPathFile(desired_access, this, nullptr);
+    return X_STATUS_SUCCESS;
+  }
   auto file_handle = rex::filesystem::FileHandle::OpenExisting(
       host_path_, desired_access, static_cast<HostPathDevice*>(device_)->allow_share_delete());
   if (!file_handle) {

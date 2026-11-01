@@ -57,6 +57,9 @@ class File {
     return X_STATUS_NOT_IMPLEMENTED;
   }
 
+  // Writes anything pending through to the host disk. Devices with nothing to flush succeed.
+  virtual X_STATUS Flush() { return X_STATUS_SUCCESS; }
+
   // rex::filesystem::FileAccess
   uint32_t file_access() const { return file_access_; }
   const Entry* entry() const { return entry_; }

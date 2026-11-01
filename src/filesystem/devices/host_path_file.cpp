@@ -30,6 +30,9 @@ X_STATUS HostPathFile::ReadSync(std::span<uint8_t> buffer, size_t byte_offset,
     return X_STATUS_ACCESS_DENIED;
   }
 
+  if (!file_handle_) {
+    return X_STATUS_FILE_IS_A_DIRECTORY;
+  }
   if (file_handle_->Read(byte_offset, buffer.data(), buffer.size(), out_bytes_read)) {
     return X_STATUS_SUCCESS;
   } else {
@@ -44,6 +47,9 @@ X_STATUS HostPathFile::WriteSync(std::span<const uint8_t> buffer, size_t byte_of
     return X_STATUS_ACCESS_DENIED;
   }
 
+  if (!file_handle_) {
+    return X_STATUS_FILE_IS_A_DIRECTORY;
+  }
   if (file_handle_->Write(byte_offset, buffer.data(), buffer.size(), out_bytes_written)) {
     return X_STATUS_SUCCESS;
   } else {
@@ -56,11 +62,21 @@ X_STATUS HostPathFile::SetLength(size_t length) {
     return X_STATUS_ACCESS_DENIED;
   }
 
+  if (!file_handle_) {
+    return X_STATUS_FILE_IS_A_DIRECTORY;
+  }
   if (file_handle_->SetLength(length)) {
     return X_STATUS_SUCCESS;
   } else {
     return X_STATUS_END_OF_FILE;
   }
+}
+
+X_STATUS HostPathFile::Flush() {
+  if (file_handle_) {
+    file_handle_->Flush();
+  }
+  return X_STATUS_SUCCESS;
 }
 
 }  // namespace rex::filesystem

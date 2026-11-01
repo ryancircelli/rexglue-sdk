@@ -16,6 +16,11 @@
 
 #include <rex/ui/vulkan/instance.h>
 
+// This SDK can enable VK_EXT_extended_dynamic_state3 (vulkan_native_shader_features). A title's
+// own renderer checks this marker before it reads Extensions::ext_EXT_extended_dynamic_state3 and
+// the three features below.
+#define REX_UI_VULKAN_DYNAMIC_STATE3 1
+
 namespace rex {
 namespace ui {
 namespace vulkan {
@@ -104,12 +109,22 @@ class VulkanDevice {
     bool fillModeNonSolid = false;
     bool samplerAnisotropy = false;
     bool occlusionQueryPrecise = false;
+    bool pipelineStatisticsQuery = false;
     bool vertexPipelineStoresAndAtomics = false;
     bool fragmentStoresAndAtomics = false;
     bool shaderClipDistance = false;
     bool shaderCullDistance = false;
     bool sparseBinding = false;
     bool sparseResidencyBuffer = false;
+
+    // Features enabled for native shaders, if requested at initialization.
+    bool shaderInt64 = false;
+    bool shaderSampledImageArrayDynamicIndexing = false;
+    bool bufferDeviceAddress = false;
+    bool runtimeDescriptorArray = false;
+    bool descriptorBindingPartiallyBound = false;
+    bool descriptorBindingSampledImageUpdateAfterBind = false;
+    bool descriptorBindingUpdateUnusedWhilePending = false;
 
     // VK_KHR_sampler_mirror_clamp_to_edge (#15, promoted to 1.2)
 
@@ -155,6 +170,12 @@ class VulkanDevice {
 
     bool dynamicRendering = false;
 
+    // VK_EXT_pipeline_creation_cache_control (#298, promoted to 1.3). The native renderer creates a
+    // pipeline from the driver's cache only (FAIL_ON_PIPELINE_COMPILE_REQUIRED) and compiles the
+    // others on a thread.
+
+    bool pipelineCreationCacheControl = false;
+
     // VK_EXT_non_seamless_cube_map (#423)
 
     bool nonSeamlessCubeMap = false;
@@ -168,6 +189,13 @@ class VulkanDevice {
     // VK_EXT_robustness2
 
     bool nullDescriptor = false;
+
+    // VK_EXT_extended_dynamic_state3 (#456). Only what the app's native renderer uses (dynamic blend
+    // enable, blend equation and color write mask).
+
+    bool extendedDynamicState3ColorBlendEnable = false;
+    bool extendedDynamicState3ColorBlendEquation = false;
+    bool extendedDynamicState3ColorWriteMask = false;
   };
 
   // Properties of the core API and enabled extensions, and enabled features.
@@ -199,6 +227,10 @@ class VulkanDevice {
     bool ext_1_3_KHR_maintenance4 = false;  // #414
     // Has optional features not implied by this being true.
     bool ext_1_3_KHR_dynamic_rendering = false;  // #55
+    // The app's native renderer (dynamic blending and color write masks).
+    bool ext_EXT_extended_dynamic_state3 = false;  // #456
+    // The app's native renderer, guest memory read by the GPU in place (a test for now).
+    bool ext_EXT_external_memory_host = false;  // #179
   };
 
   const Extensions& extensions() const { return extensions_; }

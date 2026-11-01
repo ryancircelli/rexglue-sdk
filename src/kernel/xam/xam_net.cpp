@@ -12,6 +12,8 @@
 // Disable warnings about unused parameters for kernel functions
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 
+#include <atomic>
+#include <cerrno>
 #include <cstring>
 
 #if REX_PLATFORM_MAC
@@ -289,6 +291,56 @@ u32 NetDll_WSAStartup_entry(u32 caller, u16 version, ppc_ptr_t<X_WSADATA> data_p
 u32 NetDll_WSACleanup_entry(u32 caller) {
   // This does nothing. Xenia needs WSA running.
   return 0;
+}
+
+// Report the host socket error to the guest as a WinSock code. Off Windows the SDK reported 0,
+// so a non-blocking recvfrom() with no data (EAGAIN) reached the guest as an unknown error
+// instead of WSAEWOULDBLOCK, and Black Ops II dropped out of its menus. Errors this table does
+// not know become WSAEINVAL.
+static void SetLastSocketError(const char* call) {
+#if REX_PLATFORM_WIN32
+  (void)call;
+  XThread::SetLastError(WSAGetLastError());
+#else
+  const int e = errno;
+  uint32_t wsa = 10022;  // WSAEINVAL
+  switch (e) {
+    case EAGAIN:
+#if EWOULDBLOCK != EAGAIN
+    case EWOULDBLOCK:
+#endif
+      wsa = 10035;  // WSAEWOULDBLOCK
+      break;
+    case EINPROGRESS: wsa = 10036; break;
+    case EALREADY: wsa = 10037; break;
+    case ENOTSOCK: wsa = 10038; break;
+    case EMSGSIZE: wsa = 10040; break;
+    case EADDRINUSE: wsa = 10048; break;
+    case EADDRNOTAVAIL: wsa = 10049; break;
+    case ENETDOWN: wsa = 10050; break;
+    case ENETUNREACH: wsa = 10051; break;
+    case ECONNABORTED: wsa = 10053; break;
+    case ECONNRESET: wsa = 10054; break;
+    case ENOBUFS: wsa = 10055; break;
+    case EISCONN: wsa = 10056; break;
+    case ENOTCONN: wsa = 10057; break;
+    case ETIMEDOUT: wsa = 10060; break;
+    case ECONNREFUSED: wsa = 10061; break;
+    case EHOSTUNREACH: wsa = 10065; break;
+    case EACCES: wsa = 10013; break;
+    default: break;
+  }
+  // Log real failures (not "no data yet") with the call name: the first 32, then one in 1000,
+  // since titles poll their sockets every frame.
+  if (wsa != 10035) {
+    static std::atomic<uint32_t> logged{0};
+    const uint32_t n = logged.fetch_add(1, std::memory_order_relaxed);
+    if (n < 32 || n % 1000 == 0) {
+      REXKRNL_WARN("{} failed: errno {} ({}) -> WSA {} (#{})", call, e, std::strerror(e), wsa, n + 1);
+    }
+  }
+  XThread::SetLastError(wsa);
+#endif
 }
 
 u32 NetDll_WSAGetLastError_entry() {
@@ -624,12 +676,7 @@ i32 NetDll_shutdown_entry(u32 caller, u32 socket_handle, i32 how) {
 
   auto ret = socket->Shutdown(how);
   if (ret == -1) {
-#if REX_PLATFORM_WIN32
-    uint32_t error_code = WSAGetLastError();
-    XThread::SetLastError(error_code);
-#else
-    XThread::SetLastError(0x0);
-#endif
+    SetLastSocketError("shutdown");
   }
   return ret;
 }
@@ -859,7 +906,11 @@ u32 NetDll_recv_entry(u32 caller, u32 socket_handle, mapped_void buf_ptr, u32 bu
     return -1;
   }
 
-  return socket->Recv(buf_ptr, buf_len, flags);
+  int ret = socket->Recv(buf_ptr, buf_len, flags);
+  if (ret == -1) {
+    SetLastSocketError("recv");
+  }
+  return ret;
 }
 
 u32 NetDll_recvfrom_entry(u32 caller, u32 socket_handle, mapped_void buf_ptr, u32 buf_len,
@@ -890,13 +941,7 @@ u32 NetDll_recvfrom_entry(u32 caller, u32 socket_handle, mapped_void buf_ptr, u3
   }
 
   if (ret == -1) {
-// TODO: Better way of getting the error code
-#if REX_PLATFORM_WIN32
-    uint32_t error_code = WSAGetLastError();
-    XThread::SetLastError(error_code);
-#else
-    XThread::SetLastError(0x0);
-#endif
+    SetLastSocketError("recvfrom");
   }
 
   return ret;
@@ -910,7 +955,11 @@ u32 NetDll_send_entry(u32 caller, u32 socket_handle, mapped_void buf_ptr, u32 bu
     return -1;
   }
 
-  return socket->Send(buf_ptr, buf_len, flags);
+  int ret = socket->Send(buf_ptr, buf_len, flags);
+  if (ret == -1) {
+    SetLastSocketError("send");
+  }
+  return ret;
 }
 
 u32 NetDll_sendto_entry(u32 caller, u32 socket_handle, mapped_void buf_ptr, u32 buf_len, u32 flags,
@@ -923,7 +972,11 @@ u32 NetDll_sendto_entry(u32 caller, u32 socket_handle, mapped_void buf_ptr, u32 
   }
 
   N_XSOCKADDR_IN native_to(to_ptr);
-  return socket->SendTo(buf_ptr, buf_len, flags, &native_to, to_len);
+  int ret = socket->SendTo(buf_ptr, buf_len, flags, &native_to, to_len);
+  if (ret == -1) {
+    SetLastSocketError("sendto");
+  }
+  return ret;
 }
 
 u32 NetDll___WSAFDIsSet_entry(u32 socket_handle, ppc_ptr_t<x_fd_set> fd_set) {

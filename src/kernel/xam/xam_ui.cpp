@@ -9,6 +9,11 @@
  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
  */
 
+#include <atomic>
+#include <system_error>
+#include <thread>
+
+#include <rex/kernel/xam/text_input.h>
 #include <rex/logging.h>
 #include <rex/runtime.h>
 #include <rex/string.h>
@@ -413,13 +418,13 @@ class KeyboardInputDialog : public XamDialog {
       }
       if (ImGui::InputText("##body", text_buffer_.data(), text_buffer_.size(),
                            ImGuiInputTextFlags_EnterReturnsTrue)) {
-        text_ = std::string(text_buffer_.data(), text_buffer_.size());
+        text_ = text_buffer_.data();
         cancelled_ = false;
         ImGui::CloseCurrentPopup();
         Close();
       }
       if (ImGui::Button("OK")) {
-        text_ = std::string(text_buffer_.data(), text_buffer_.size());
+        text_ = text_buffer_.data();
         cancelled_ = false;
         ImGui::CloseCurrentPopup();
         Close();
@@ -580,6 +585,68 @@ u32 XamShowPartyUI_entry(u32 r3, u32 r4) {
 
 u32 XamShowCommunitySessionsUI_entry(u32 r3, u32 r4) {
   return X_ERROR_FUNCTION_FAILED;
+}
+
+// The app's text input (rex/kernel/xam/text_input.h).
+namespace {
+
+std::atomic<bool> text_input_open_{false};
+
+// The text box, on the worker thread; nothing when cancelled or unavailable.
+std::optional<std::string> RunTextInput(const std::string& title, const std::string& default_text,
+                                        size_t max_length) {
+  const Runtime* emulator = REX_KERNEL_STATE()->emulator();
+  ui::ImGuiDrawer* imgui_drawer = emulator ? emulator->imgui_drawer() : nullptr;
+  rex::ui::WindowedAppContext* app_context = emulator ? emulator->app_context() : nullptr;
+  if (!imgui_drawer || !app_context) {
+    REXKRNL_WARN("ShowTextInput: no ImGui drawer to show a text box");
+    return std::nullopt;
+  }
+  ScopedGuestInputBlock input_block;
+  auto* dialog = new KeyboardInputDialog(imgui_drawer, title, "", default_text, max_length + 1);
+  std::optional<std::string> text;
+  dialog->set_close_callback([&dialog, &text]() {
+    if (!dialog->cancelled()) {
+      text = dialog->text();
+    }
+  });
+  rex::thread::Fence fence;
+  if (app_context->CallInUIThreadSynchronous([&dialog, &fence]() { dialog->Then(&fence); })) {
+    ++xam_dialogs_shown_;
+    fence.Wait();
+    --xam_dialogs_shown_;
+  } else {
+    delete dialog;
+  }
+  return text;
+}
+
+}  // namespace
+
+bool ShowTextInput(std::string title, std::string default_text, size_t max_length,
+                   std::function<void(std::optional<std::string>)> done) {
+  if (text_input_open_.exchange(true)) {
+    return false;
+  }
+  // One worker thread object, joined before the next input. The previous input's thread has
+  // ended or is about to (it cleared text_input_open_ before calling done). Never destroyed: a
+  // joinable std::thread destroyed at exit would call std::terminate.
+  static auto* thread = new std::thread();
+  if (thread->joinable()) {
+    thread->join();
+  }
+  try {
+    *thread = std::thread([title = std::move(title), default_text = std::move(default_text),
+                          max_length, done = std::move(done)]() {
+      auto text = RunTextInput(title, default_text, max_length);
+      text_input_open_.store(false);
+      done(std::move(text));
+    });
+  } catch (const std::system_error&) {
+    text_input_open_.store(false);
+    return false;
+  }
+  return true;
 }
 
 uint32_t XamShowMessageBoxUIEx_entry() {

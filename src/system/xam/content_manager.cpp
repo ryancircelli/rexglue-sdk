@@ -85,8 +85,19 @@ ContentManager::ContentManager(KernelState* kernel_state, const std::filesystem:
 
 ContentManager::~ContentManager() = default;
 
+namespace {
+// Whose folder a package lives in: nobody's for marketplace content (DLC is shared by every
+// profile), else the XUID in the content data when it names one, else the caller's.
+uint64_t EffectiveContentOwner(uint64_t xuid, const XCONTENT_AGGREGATE_DATA& data) {
+  if (data.content_type == XContentType::kMarketplaceContent) {
+    return 0;
+  }
+  return (data.xuid != uint64_t(-1) && data.xuid != 0) ? uint64_t(data.xuid) : xuid;
+}
+}  // namespace
+
 std::filesystem::path ContentManager::ResolvePackageRoot(uint64_t xuid, XContentType content_type,
-                                                         uint32_t title_id) {
+                                                         uint32_t title_id) const {
   if (title_id == kCurrentlyRunningTitleId) {
     title_id = kernel_state_->title_id();
   }
@@ -100,13 +111,8 @@ std::filesystem::path ContentManager::ResolvePackageRoot(uint64_t xuid, XContent
 }
 
 std::filesystem::path ContentManager::ResolvePackagePath(uint64_t xuid,
-                                                         const XCONTENT_AGGREGATE_DATA& data) {
-  uint64_t used_xuid = (data.xuid != uint64_t(-1) && data.xuid != 0) ? uint64_t(data.xuid) : xuid;
-
-  // DLCs are stored in common directory
-  if (data.content_type == XContentType::kMarketplaceContent) {
-    used_xuid = 0;
-  }
+                                                         const XCONTENT_AGGREGATE_DATA& data) const {
+  const uint64_t used_xuid = EffectiveContentOwner(xuid, data);
 
   // Content path:
   // content_root/xuid/title_id/content_type/data_file_name/
@@ -179,7 +185,11 @@ std::unique_ptr<ContentPackage> ContentManager::ResolvePackage(
   if (!std::filesystem::exists(package_path)) {
     return nullptr;
   }
-  auto package = std::make_unique<ContentPackage>(kernel_state_, root_name, data, package_path);
+  // The package remembers its owner, so the same name opened by two profiles stays two packages.
+  auto owned_data = data;
+  owned_data.xuid = EffectiveContentOwner(xuid, data);
+  auto package =
+      std::make_unique<ContentPackage>(kernel_state_, root_name, owned_data, package_path);
   return package;
 }
 
@@ -367,7 +377,7 @@ X_RESULT ContentManager::SetContentThumbnail(uint64_t xuid, const XCONTENT_AGGRE
 X_RESULT ContentManager::DeleteContent(uint64_t xuid, const XCONTENT_AGGREGATE_DATA& data) {
   auto global_lock = global_critical_region_.Acquire();
 
-  if (IsContentOpen(data)) {
+  if (IsContentOpen(xuid, data)) {
     // TODO(Gliniak): Get real error code for this case.
     return X_ERROR_ACCESS_DENIED;
   }
@@ -396,7 +406,7 @@ X_RESULT ContentManager::UnmountContent(uint64_t xuid, const XCONTENT_AGGREGATE_
   ContentPackage* package = nullptr;
   {
     auto global_lock = global_critical_region_.Acquire();
-    auto it = FindOpenPackageByData(data);
+    auto it = FindOpenPackageByData(xuid, data);
     if (it == open_packages_.end()) {
       return X_ERROR_FILE_NOT_FOUND;
     }
@@ -412,7 +422,7 @@ X_RESULT ContentManager::UnmountAndDeleteContent(uint64_t xuid,
   ContentPackage* package = nullptr;
   {
     auto global_lock = global_critical_region_.Acquire();
-    auto it = FindOpenPackageByData(data);
+    auto it = FindOpenPackageByData(xuid, data);
     if (it != open_packages_.end()) {
       package = DetachPackage(it);
     }
@@ -469,25 +479,13 @@ std::filesystem::path ContentManager::ResolveGameUserContentPath(uint64_t xuid) 
 
 std::unordered_map<string::string_key_case, ContentPackage*,
                    string::string_key_case::Hash>::iterator
-ContentManager::FindOpenPackageByData(const XCONTENT_AGGREGATE_DATA& data) {
-  // Resolve kCurrentlyRunningTitleId so both sides compare actual title IDs.
-  uint32_t query_title = data.title_id;
-  if (query_title == kCurrentlyRunningTitleId) {
-    query_title = kernel_state_->title_id();
-  }
-
+ContentManager::FindOpenPackageByData(uint64_t xuid, const XCONTENT_AGGREGATE_DATA& data) {
+  // Compare where the packages live on disk: that resolves the running title id, the owner
+  // (one profile's save is not another's) and shared DLC exactly as opening does. device_id is
+  // a virtual storage selector, not a content identifier, and is not part of the path.
+  const auto package_path = ResolvePackagePath(xuid, data);
   for (auto it = open_packages_.begin(); it != open_packages_.end(); ++it) {
-    const auto& pkg = it->second->GetPackageContentData();
-
-    uint32_t pkg_title = pkg.title_id;
-    if (pkg_title == kCurrentlyRunningTitleId) {
-      pkg_title = kernel_state_->title_id();
-    }
-
-    // Match on content_type + file_name + resolved title_id.
-    // device_id is a virtual storage selector, not a content identifier.
-    if (data.content_type == pkg.content_type && data.file_name() == pkg.file_name() &&
-        query_title == pkg_title) {
+    if (package_path == it->second->package_path()) {
       return it;
     }
   }
@@ -503,10 +501,12 @@ ContentPackage* ContentManager::DetachPackage(
   return package;
 }
 
-bool ContentManager::IsContentOpen(const XCONTENT_AGGREGATE_DATA& data) const {
-  return std::any_of(open_packages_.cbegin(), open_packages_.cend(), [&data](const auto& content) {
-    return data == content.second->GetPackageContentData();
-  });
+bool ContentManager::IsContentOpen(uint64_t xuid, const XCONTENT_AGGREGATE_DATA& data) const {
+  const auto package_path = ResolvePackagePath(xuid, data);
+  return std::any_of(open_packages_.cbegin(), open_packages_.cend(),
+                     [&package_path](const auto& content) {
+                       return package_path == content.second->package_path();
+                     });
 }
 
 std::filesystem::path ContentManager::GetOpenPackagePath(const std::string_view root_name) const {

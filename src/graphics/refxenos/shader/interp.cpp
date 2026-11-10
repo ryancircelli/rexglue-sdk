@@ -16,6 +16,7 @@
 namespace refxenos {
 
 using namespace shader_internal;
+using namespace rex::graphics;  // XE_GPU_REG_* register indices
 
 // ---------------------------------------------------------------------------
 // Rules
@@ -654,7 +655,7 @@ void StoreFetchResult(Lane& lane, const ucode::FetchInstruction& f, const float 
   uint8_t ot[4];
   uint32_t mask = 0;
   for (uint32_t c = 0; c < 4; ++c) {
-    uint32_t s = ucode::GetFetchDestinationComponentSwizzle(f.dest_swizzle(), c);
+    uint32_t s = uint32_t(ucode::GetFetchDestinationComponentSwizzle(f.dest_swizzle(), c));
     if (s == 7) continue;
     mask |= 1u << c;
     if (s < 4) { out[c] = v[s]; ot[c] = t[s]; }
@@ -1352,7 +1353,7 @@ std::string DisassembleFetch(const uint32_t* dwords) {
   char buf[160];
   auto dsw = [&] {
     std::string d;
-    for (uint32_t c = 0; c < 4; ++c) d += "xyzw01?_"[ucode::GetFetchDestinationComponentSwizzle(f.dest_swizzle(), c)];
+    for (uint32_t c = 0; c < 4; ++c) d += "xyzw01?_"[uint32_t(ucode::GetFetchDestinationComponentSwizzle(f.dest_swizzle(), c))];
     return d;
   };
   switch (f.opcode()) {

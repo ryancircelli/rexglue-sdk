@@ -15,6 +15,7 @@
 #include "shader/interp.h"
 
 using namespace refxenos;
+using namespace rex::graphics;  // XE_GPU_REG_* register indices
 
 namespace {
 

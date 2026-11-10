@@ -560,7 +560,9 @@ static void TestScissor() {
   Set(*rf, br);
   r = Draw(*rf, PT::kTriangleList, small);
   CHECK(CoversRect(r, 4, 1, 6, 3));
-  CHECK(r.At(4, 1) && r.At(4, 1)->param_gen[0] == 4.0f && r.At(4, 1)->param_gen[1] == 1.0f);
+  // Clockwise on screen with face = 0 is a back face, so param_gen X is negated.
+  CHECK(r.At(4, 1) && !r.At(4, 1)->front && r.At(4, 1)->param_gen[0] == -4.0f &&
+        r.At(4, 1)->param_gen[1] == 1.0f);
   delete rf;
 }
 

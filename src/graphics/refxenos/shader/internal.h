@@ -8,6 +8,12 @@
 
 #include "shader/interp.h"
 
+namespace refxenos {
+// Defined in vfetch.cpp, applied in interp.cpp (extern so the const has
+// external linkage).
+RX_DECLARE_RULE(xenos_vfetch_mini_reuse);
+}  // namespace refxenos
+
 namespace refxenos::shader_internal {
 
 namespace ucode = rex::graphics::ucode;

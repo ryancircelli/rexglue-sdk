@@ -167,7 +167,9 @@ set_target_properties(rexgpu-metal PROPERTIES
     BUILD_RPATH "@loader_path"
     INSTALL_RPATH "@loader_path"
 )
-rexglue_add_version_resource(rexgpu-metal DESCRIPTION "ReXGlue Xenos GPU emulation (Metal)")
+if(COMMAND rexglue_add_version_resource)
+    rexglue_add_version_resource(rexgpu-metal DESCRIPTION "ReXGlue Xenos GPU emulation (Metal)")
+endif()
 
 # Private patched SDK headers must come before the SDK's own include
 # directory, which arrives through rexruntime's interface.

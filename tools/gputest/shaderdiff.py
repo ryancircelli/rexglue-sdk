@@ -39,6 +39,7 @@ import struct
 import subprocess
 import sys
 import time
+import zlib
 from collections import defaultdict
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -579,6 +580,9 @@ def inject_bug(path, kind):
             a, b = regs[0], regs[1]
             src = src.replace("user(%s)" % a, "user(XE_TMP)").replace("user(%s)" % b, "user(%s)" % a).replace("user(XE_TMP)", "user(%s)" % b)
             n = 1
+    elif kind == "precise_math":
+        # Probe for NaN classes: swap fast:: math for precise:: in the native MSL.
+        src, n = re.subn(r"\bfast::", "precise::", src)
     elif kind == "fix_maxa":
         # Positive control for the native scalar maxas/maxasf clamp: apply
         # the -256 lower bound the SDK uses and check the mismatch goes away.
@@ -856,7 +860,7 @@ def main():
     ap.add_argument("--interp-mask", default="", help="hex; default VS: written, PS: all registers")
     ap.add_argument("--bin", default=DEFAULT_BIN)
     ap.add_argument("--msl-xlate", default=os.path.expanduser("~/dev/rexglue-sdk-metal/out/mac-arm64/rexgpu-metal-msl-xlate"))
-    ap.add_argument("--inject", default="", help="edit the native MSL: const_offset | interp_swap plant a bug (negative controls); fix_maxa applies the address register clamp fix (positive control)")
+    ap.add_argument("--inject", default="", help="edit the native MSL: const_offset | interp_swap plant a bug (negative controls); fix_maxa applies the address register clamp fix (positive control); precise_math replaces fast:: with precise::")
     ap.add_argument("--no-patch-vfetch", action="store_true", help="keep vertex fetch formats as dumped (undefined)")
     ap.add_argument("--no-localize", action="store_true")
     ap.add_argument("--batch", type=int, default=40, help="shaders per runner process")
@@ -917,6 +921,7 @@ def main():
                 "dxbc": df["alpha_always"] | df["primitive_polygonal"] | df["w_not_reciprocal"]}
 
     results = open(os.path.join(args.out, "results.jsonl"), "w")
+    written = set()
     runnable = [s for s in shaders if s.info and len(s.arms) >= 2]
     for s in shaders:
         if s not in runnable:
@@ -938,7 +943,7 @@ def main():
             sh.ref = ref
             variants = []
             for seed in range(args.seeds):
-                rng = random.Random(hash((sh.name, seed)) & 0xFFFFFFFF)
+                rng = random.Random(zlib.crc32(("%s:%d" % (sh.name, seed)).encode()))
                 variants.append(("seed%d" % seed, random_consts(rng, sh.info), cell_inputs(rng), vertex_blob(rng)))
             sh.variants = variants
             # Localization variants: perturb one float constant / one input
@@ -1097,13 +1102,19 @@ def main():
                             for s_ in suspects:
                                 sh.fail("%s_vs_%s:%s_sensitivity" % (arm, ref, kinds[s_[0]]))
             sh.result["classes"] = sorted(set(sh.result["classes"]))
+        for sh in batch:
+            # Stream results so a killed run keeps finished batches.
+            results.write(json.dumps(sh.result) + "\n")
+            written.add(sh.name)
+        results.flush()
         print("batch %d-%d done (%.0fs)" % (bstart, bstart + len(batch), time.time() - t0), flush=True)
         if not os.environ.get("SHADERDIFF_KEEP_JOBS"):
             shutil.rmtree(jdir, ignore_errors=True)
 
     for sh in shaders:
         sh.result["classes"] = sorted(set(sh.result["classes"]))
-        results.write(json.dumps(sh.result) + "\n")
+        if sh.name not in written:
+            results.write(json.dumps(sh.result) + "\n")
     results.close()
     write_summary(args, shaders, time.time() - t0)
 

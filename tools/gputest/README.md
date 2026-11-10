@@ -108,4 +108,16 @@ per core. Classes: `spirv_translate`, `spirv_val`,
    unscaled and textures with a LOD bias get scaled on the Vulkan path.
 3. Native Metal translator `maxas`/`maxasf` (scalar) clamp the address
    register to 0..255 instead of -256..255, so negative relative constant
-   indexing reads the wrong register (vs_19571f7ff8ea7a94).
+   indexing reads the wrong register. 15 of the 265 bo2 vertex shaders
+   (all of them use `c[N+a0]`); `--inject fix_maxa` applies the -256 bound to
+   the native MSL and all 15 then match the interpreter.
+4. Open: 5 of the first 200 bo2 pixel shaders produce NaN on a few pixels in
+   the native arm where SDK SPIR-V is finite (for example ps_0380eef8f8a2b730
+   with `--seeds 8`). Not texture inputs or signs (`SHADERDIFF_SIMPLE_FETCH`
+   does not change it) and not `fast::` math (`--inject precise_math` does
+   not change it); no CPU reference for textured shaders, so which arm is
+   right is not settled.
+
+Random inputs are seeded from crc32(shader name, seed), so a run is
+reproducible; `results.jsonl` is written per batch, so a killed run keeps its
+finished batches.

@@ -9,7 +9,7 @@ the first draw whose output differs beyond a tolerance, with its shader
 hashes, render state and side-by-side + diff images.
 
   replay_diff.py diff A_DIR B_DIR -o REPORT_DIR [--tol 0.004] [--depth-tol 16]
-                 [--max-pixels 0] [--delta] [--images 8]
+                 [--max-pixels 0] [--delta] [--images 8] [--a-frame F] [--b-frame F]
   replay_diff.py png REPLAY_DIR -o PNG_DIR      # export every readback as PNG
 
 --delta compares what each draw changed instead of the full target, so draws
@@ -181,7 +181,17 @@ def run_diff(args):
     if len(A.draws) != len(B.draws):
         structural.append(f"draw count differs: {len(A.draws)} vs {len(B.draws)}")
 
-    for (da, ta), (db, tb) in zip(A.states(), B.states()):
+    def frame_filter(states, frame):
+        for d, t in states:
+            if frame is None or d.get("frame") == frame:
+                yield d, t
+
+    if args.a_frame is not None or args.b_frame is not None:
+        n = min(sum(1 for d in A.draws if args.a_frame is None or d.get("frame") == args.a_frame),
+                sum(1 for d in B.draws if args.b_frame is None or d.get("frame") == args.b_frame))
+        structural = []
+    for (da, ta), (db, tb) in zip(frame_filter(A.states(), args.a_frame),
+                                  frame_filter(B.states(), args.b_frame)):
         idx = da["draw"]
         for field in ("prim_type", "index_count", "vs", "ps"):
             if da.get(field) != db.get(field):
@@ -363,6 +373,8 @@ def main():
     d.add_argument("--max-pixels", type=int, default=0, help="differing pixels allowed per target")
     d.add_argument("--delta", action="store_true", help="compare per-draw changes, list all independent divergences")
     d.add_argument("--images", type=int, default=8, help="max divergent draws to render")
+    d.add_argument("--a-frame", type=int, help="only compare draws of this frame of A (0 based)")
+    d.add_argument("--b-frame", type=int, help="only compare draws of this frame of B")
     p = sub.add_parser("png")
     p.add_argument("replay")
     p.add_argument("-o", "--out", default="replay_png")

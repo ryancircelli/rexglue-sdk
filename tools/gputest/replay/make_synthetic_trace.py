@@ -163,7 +163,7 @@ class Trace:
         self.buf += struct.pack("<II", K_EVENT, EVENT_SWAP)
 
 
-def build(bug):
+def build(bug, frames=1):
     t = Trace()
     t.buf += struct.pack("<III", K_PRIMARY_START, PACKET_BASE, 0)
     t.registers([0] * REGISTER_COUNT)
@@ -213,44 +213,50 @@ def build(bug):
         RB_COPY_DEST_INFO=0,
     )
 
-    # 0: clear via resolve. Copy of the cleared surface goes to CLEAR_DEST.
-    t.regs(
-        RB_MODECONTROL=6,  # kCopy
-        RB_COPY_CONTROL=(1 << 8) | (1 << 9) | (1 << 20),  # color+depth clear, convert
-        RB_COPY_DEST_BASE=CLEAR_DEST,
-        RB_COPY_DEST_PITCH=WIDTH | (HEIGHT << 16),
-        RB_COPY_DEST_INFO=(1 << 3) | (6 << 7),  # array, k_8_8_8_8 (ColorFormat 6)
-        RB_COLOR_CLEAR=0xFF402010,
-        RB_DEPTH_CLEAR=0xFFFFFF00,
-        PA_CL_VTE_CNTL=0,  # screen space rectangle
-    )
-    t.packet(type0(R["SHADER_CONSTANT_FETCH_00_0"], [(3 | ((VB_CLEAR >> 2) << 2)), 2 | (6 << 2)]))
-    t.packet(draw_autoindex(8, 3))  # kRectangleList
+    # Every frame repeats the clear and the triangles; common state is only set
+    # once, so a capture starting at frame 1 must restore it from its register
+    # snapshot.
+    for frame in range(frames):
+        # 0: clear via resolve. Copy of the cleared surface goes to CLEAR_DEST.
+        t.regs(
+            RB_MODECONTROL=6,  # kCopy
+            RB_COPY_CONTROL=(1 << 8) | (1 << 9) | (1 << 20),  # color+depth clear, convert
+            RB_COPY_DEST_BASE=CLEAR_DEST,
+            RB_COPY_DEST_PITCH=WIDTH | (HEIGHT << 16),
+            RB_COPY_DEST_INFO=(1 << 3) | (6 << 7),  # array, k_8_8_8_8 (ColorFormat 6)
+            RB_COLOR_CLEAR=0xFF402010,
+            RB_DEPTH_CLEAR=0xFFFFFF00,
+            PA_CL_VTE_CNTL=0,  # screen space rectangle
+        )
+        t.packet(type0(R["SHADER_CONSTANT_FETCH_00_0"], [(3 | ((VB_CLEAR >> 2) << 2)), 2 | (6 << 2)]))
+        t.packet(draw_autoindex(8, 3))  # kRectangleList
 
-    # Triangles.
-    t.regs(
-        RB_MODECONTROL=4,  # kColorDepth
-        RB_DEPTHCONTROL=0x2 | 0x4 | (3 << 4),  # z enable, z write, LEQUAL
-        PA_CL_VTE_CNTL=0x3F | (1 << 10),
-        PA_CL_VPORT_XSCALE=WIDTH / 2.0,
-        PA_CL_VPORT_XOFFSET=WIDTH / 2.0,
-        PA_CL_VPORT_YSCALE=-HEIGHT / 2.0,
-        PA_CL_VPORT_YOFFSET=HEIGHT / 2.0,
-        PA_CL_VPORT_ZSCALE=1.0,
-        PA_CL_VPORT_ZOFFSET=0.0,
-    )
-    vb_size_words = len(vb) // 4
-    for i, color in enumerate([(1.0, 0.0, 0.0, 1.0), (0.0, 1.0, 0.0, 1.0),
-                               (1.0, 0.0, 1.0, 1.0) if bug else (0.0, 0.0, 1.0, 1.0)]):
-        # Vertex fetch 0 points at triangle i.
-        base = VB_TRIS + i * 48
-        t.packet(type0(R["SHADER_CONSTANT_FETCH_00_0"], [3 | ((base >> 2) << 2), 2 | (12 << 2)]))
-        t.packet(type0(R["SHADER_CONSTANT_256_X"], [f2u(c) for c in color]))
-        t.packet(draw_autoindex(4, 3))  # kTriangleList
+        # Triangles.
+        t.regs(
+            RB_MODECONTROL=4,  # kColorDepth
+            RB_DEPTHCONTROL=0x2 | 0x4 | (3 << 4),  # z enable, z write, LEQUAL
+            PA_CL_VTE_CNTL=0x3F | (1 << 10),
+            PA_CL_VPORT_XSCALE=WIDTH / 2.0,
+            PA_CL_VPORT_XOFFSET=WIDTH / 2.0,
+            PA_CL_VPORT_YSCALE=-HEIGHT / 2.0,
+            PA_CL_VPORT_YOFFSET=HEIGHT / 2.0,
+            PA_CL_VPORT_ZSCALE=1.0,
+            PA_CL_VPORT_ZOFFSET=0.0,
+        )
+        vb_size_words = len(vb) // 4
+        for i, color in enumerate([(1.0, 0.0, 0.0, 1.0), (0.0, 1.0, 0.0, 1.0),
+                                   (1.0, 0.0, 1.0, 1.0) if bug else (0.0, 0.0, 1.0, 1.0)]):
+            # Vertex fetch 0 points at triangle i.
+            base = VB_TRIS + i * 48
+            t.packet(type0(R["SHADER_CONSTANT_FETCH_00_0"], [3 | ((base >> 2) << 2), 2 | (12 << 2)]))
+            t.packet(type0(R["SHADER_CONSTANT_256_X"], [f2u(c) for c in color]))
+            t.packet(draw_autoindex(4, 3))  # kTriangleList
 
-    t.packet(type3(PM4_XE_SWAP, [0, 0, 0, WIDTH, HEIGHT]))
-    t.buf += struct.pack("<I", K_PRIMARY_END)
-    t.swap()
+        t.packet(type3(PM4_XE_SWAP, [0, 0, 0, WIDTH, HEIGHT]))
+        t.buf += struct.pack("<I", K_PRIMARY_END)
+        t.swap()
+        if frame + 1 < frames:
+            t.buf += struct.pack("<III", K_PRIMARY_START, PACKET_BASE, 0)
     return bytes(t.buf)
 
 
@@ -258,8 +264,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("out")
     ap.add_argument("--bug", action="store_true", help="change the color of draw 3")
+    ap.add_argument("--frames", type=int, default=1, help="number of frames (swaps)")
     args = ap.parse_args()
-    data = build(args.bug)
+    data = build(args.bug, args.frames)
     with open(args.out, "wb") as f:
         f.write(data)
     print(f"wrote {args.out} ({len(data)} bytes)")

@@ -212,6 +212,7 @@ void FrameCapture::OnDrawEnd(CommandProcessor& cp, const DrawEvent& draw) {
 
 void FrameCapture::OnSwap(CommandProcessor& cp, uint32_t frontbuffer_ptr, uint32_t width,
                           uint32_t height) {
+  ++swaps_seen_;
   if (writer_.is_open()) {
     // The front buffer itself is produced by a resolve inside the trace.
     (void)frontbuffer_ptr;
@@ -249,7 +250,7 @@ void FrameCapture::OnSwap(CommandProcessor& cp, uint32_t frontbuffer_ptr, uint32
       RequestCapture(frames);
     }
   }
-  if (config_.start_frame >= 0 && int64_t(cp.counter()) >= config_.start_frame) {
+  if (config_.start_frame >= 0 && int64_t(swaps_seen_) >= config_.start_frame) {
     config_.start_frame = -1;
     RequestCapture(config_.frame_count);
   }
@@ -263,7 +264,7 @@ void FrameCapture::OnSwap(CommandProcessor& cp, uint32_t frontbuffer_ptr, uint32
 void FrameCapture::BeginTrace(CommandProcessor& cp) {
   uint32_t title_id = TraceAccess::title_id(cp);
   char name[64];
-  std::snprintf(name, sizeof(name), "%08X_%u.xtr", title_id, uint32_t(cp.counter()));
+  std::snprintf(name, sizeof(name), "%08X_%u.xtr", title_id, swaps_seen_);
   std::filesystem::path path = config_.directory / name;
   if (!writer_.Open(path, title_id)) {
     REXGPU_ERROR("GPU trace: failed to open {}", path.string());

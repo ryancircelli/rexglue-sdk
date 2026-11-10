@@ -12,6 +12,7 @@
 #include <rex/graphics/command_processor.h>
 #include <rex/graphics/register_file.h>
 #include <rex/system/kernel_state.h>
+#include <rex/system/user_module.h>
 
 namespace rex::graphics::trace {
 
@@ -20,7 +21,12 @@ class TraceAccess {
   static RegisterFile& registers(CommandProcessor& cp) { return *cp.register_file_; }
   static memory::Memory* memory(CommandProcessor& cp) { return cp.memory_; }
   static uint32_t title_id(CommandProcessor& cp) {
-    return cp.kernel_state_ ? cp.kernel_state_->title_id() : 0;
+    // KernelState::title_id() needs an executable module, which the replay
+    // tool (no game loaded) does not have.
+    if (!cp.kernel_state_ || !cp.kernel_state_->GetExecutableModule()) {
+      return 0;
+    }
+    return cp.kernel_state_->title_id();
   }
 
   static void WriteRegister(CommandProcessor& cp, uint32_t index, uint32_t value) {

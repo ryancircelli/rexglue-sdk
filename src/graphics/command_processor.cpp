@@ -700,7 +700,9 @@ bool CommandProcessor::ExecutePacket(memory::RingBuffer* reader) {
       default:
         break;
     }
-    dword_count = std::min<uint32_t>(dword_count, uint32_t(reader->read_count() / sizeof(uint32_t)));
+    // read_count() is 0 for a completely full buffer (ExecutePacket(ptr, count)).
+    size_t available = reader->read_count() ? reader->read_count() : reader->capacity();
+    dword_count = std::min<uint32_t>(dword_count, uint32_t(available / sizeof(uint32_t)));
     trace_hooks_->OnPacketStart(reader->buffer(), uint32_t(reader->capacity()),
                                 uint32_t(reader->read_offset()), dword_count);
     bool result = ExecutePacketUntraced(reader);

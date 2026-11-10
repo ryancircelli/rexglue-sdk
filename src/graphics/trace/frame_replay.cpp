@@ -187,15 +187,49 @@ bool WriteNpy(const std::filesystem::path& path, const char* descr, uint32_t hei
   return true;
 }
 
+// Collects draws for readback. When the plugin was started with capture
+// enabled (REX_GPU_TRACE_* environment), forwards every event to the capture
+// so a replayed trace can be captured again (round trip test of the capture
+// path without a game).
 class ReplayHooks : public TraceHooks {
  public:
   bool is_replaying() const override { return true; }
+  bool is_recording() const override { return chain && !suppress && chain->is_recording(); }
+  void OnPrimaryBufferStart(uint32_t base_ptr, uint32_t count) override {
+    if (forward()) chain->OnPrimaryBufferStart(base_ptr, count);
+  }
+  void OnPrimaryBufferEnd() override {
+    if (forward()) chain->OnPrimaryBufferEnd();
+  }
+  void OnIndirectBufferStart(uint32_t base_ptr, uint32_t count) override {
+    if (forward()) chain->OnIndirectBufferStart(base_ptr, count);
+  }
+  void OnIndirectBufferEnd() override {
+    if (forward()) chain->OnIndirectBufferEnd();
+  }
+  void OnPacketStart(const uint8_t* ring_base, uint32_t ring_capacity, uint32_t read_offset,
+                     uint32_t dword_count) override {
+    if (forward()) chain->OnPacketStart(ring_base, ring_capacity, read_offset, dword_count);
+  }
+  void OnPacketEnd() override {
+    if (forward()) chain->OnPacketEnd();
+  }
+  void OnMemoryRead(uint32_t physical_address, uint32_t length) override {
+    if (forward()) chain->OnMemoryRead(physical_address, length);
+  }
   void OnDrawEnd(CommandProcessor& cp, const DrawEvent& draw) override {
     if (suppress) {
       return;
     }
+    if (chain) chain->OnDrawEnd(cp, draw);
     pending_draws.push_back(draw);
   }
+  void OnSwap(CommandProcessor& cp, uint32_t frontbuffer_ptr, uint32_t width,
+              uint32_t height) override {
+    if (forward()) chain->OnSwap(cp, frontbuffer_ptr, width, height);
+  }
+  bool forward() const { return chain && !suppress; }
+  TraceHooks* chain = nullptr;
   bool suppress = false;
   std::vector<DrawEvent> pending_draws;
 };
@@ -294,9 +328,10 @@ int Replayer::Run(const std::vector<uint8_t>& trace) {
     return 1;
   }
 
+  hooks_.chain = cp_.trace_hooks();
   cp_.set_trace_hooks(&hooks_);
   bool ok = ExecuteCommands(trace);
-  cp_.set_trace_hooks(nullptr);
+  cp_.set_trace_hooks(hooks_.chain);
   std::fclose(draws_json_);
   draws_json_ = nullptr;
 
@@ -361,9 +396,11 @@ bool Replayer::ExecuteCommands(const std::vector<uint8_t>& trace) {
       }
       case TraceCommandType::kPacketEnd: {
         ptr += sizeof(PacketEndCommand);
-        if (!pending_packet) {
+        if (!pending_packet || !pending_packet->count) {
           // Packet containing other packets (indirect buffer); its contents
-          // were executed individually.
+          // were executed individually. Empty packets come from broken
+          // captures and would execute garbage.
+          pending_packet = nullptr;
           break;
         }
         current_packet_base_ = pending_packet->base_ptr;

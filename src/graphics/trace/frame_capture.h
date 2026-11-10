@@ -3,10 +3,10 @@
  * the GPU reads into a Xenia compatible .xtr file.
  *
  * Environment (read once when the command processor initializes):
- *   REX_GPU_TRACE_FRAME=<n>     start recording at the swap that ends frame n
- *                               (the first recorded frame is frame n + 1 in
- *                               swap counter terms; n=0 means the very first
- *                               frame after the first swap)
+ *   REX_GPU_TRACE_FRAME=<n>     record the frame that follows swap number n
+ *                               (counting XE_SWAP packets from 1; recording
+ *                               always begins at a swap, so 0 behaves like 1).
+ *                               The file is <title id>_<n>.xtr.
  *   REX_GPU_TRACE_FRAMES=<k>    number of frames per capture (default 1)
  *   REX_GPU_TRACE_DIR=<dir>     output directory (default ./gpu_traces)
  *   REX_GPU_TRACE_TRIGGER=<f>   poll for file f at every swap; when it exists
@@ -84,6 +84,9 @@ class FrameCapture : public TraceHooks {
   TraceWriter writer_;
   uint32_t pending_frames_ = 0;
   uint32_t frames_left_ = 0;
+  // XE_SWAP packets seen so far. CommandProcessor::counter() also advances on
+  // vblank, so it is not a frame number.
+  uint32_t swaps_seen_ = 0;
   uint32_t traced_draws_ = 0;
   std::vector<uint32_t> packet_scratch_;
 

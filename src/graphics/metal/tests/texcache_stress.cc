@@ -1011,6 +1011,71 @@ void MemexportGpuScenario(const char* name, const TexDesc& d, Gx mode) {
   g_expected_base = nullptr;
 }
 
+// CPU store racing ApplyCompletedMemexportReadbacks.
+// The export completes, then a CPU write hits the export range while the
+// readback is being applied. Without the global lock, the readback's
+// hash/merge/memcpy can race with the CPU write, causing lost updates or
+// corruption.
+void MemexportRaceCpuStoreScenario(const char* name, const TexDesc& d) {
+  Region base = Alloc(256 * 1024);
+  xe_gpu_texture_fetch_t f = MakeFetch(d, base.phys, 0);
+  Extents e = GetExtents(f);
+  const uint32_t blen = (e.base + 0xFFF) & ~0xFFFu;
+  Seed(base, 0, Pattern(base.size, 200));
+  g_acc->MakeResident(base.phys, blen);
+  g_acc->Materialize(f);
+  g_acc->Flush();
+  const uint32_t xoff = 0x100, xlen = 0x200;
+  if (!g_acc->Memexport(base.phys + xoff, Pattern(xlen, 201))) {
+    std::printf("HARNESS scenario %s: memexport failed\n", name);
+    ++g_harness_errors;
+    return;
+  }
+  // CPU writes to the export range after export but before readback applies.
+  // This races with ApplyCompletedMemexportReadbacks when it processes the
+  // completion. The global lock should serialize them.
+  GuestWrite(base, xoff, Pattern(xlen, 202));
+  g_acc->Flush();  // completion processed, readback applies
+  Verify(name, d, base, nullptr);
+}
+
+// Overlapping later readback rebased.
+// Two memexports to overlapping ranges complete. The first applies and rebases
+// the second's hash and snapshot. Without the snapshot refresh, the second
+// readback would merge against stale snapshot data.
+void MemexportRebaseOverlapScenario(const char* name, const TexDesc& d) {
+  Region base = Alloc(256 * 1024);
+  xe_gpu_texture_fetch_t f = MakeFetch(d, base.phys, 0);
+  Extents e = GetExtents(f);
+  const uint32_t blen = (e.base + 0xFFF) & ~0xFFFu;
+  Seed(base, 0, Pattern(base.size, 210));
+  g_acc->MakeResident(base.phys, blen);
+  g_acc->Materialize(f);
+  g_acc->Flush();
+  // First export: range [0x100, 0x300)
+  const uint32_t xoff1 = 0x100, xlen1 = 0x200;
+  const std::vector<uint8_t> x1 = Pattern(xlen1, 211);
+  if (!g_acc->Memexport(base.phys + xoff1, x1)) {
+    std::printf("HARNESS scenario %s: memexport1 failed\n", name);
+    ++g_harness_errors;
+    return;
+  }
+  // Second export: overlapping range [0x200, 0x400)
+  const uint32_t xoff2 = 0x200, xlen2 = 0x200;
+  const std::vector<uint8_t> x2 = Pattern(xlen2, 212);
+  if (!g_acc->Memexport(base.phys + xoff2, x2)) {
+    std::printf("HARNESS scenario %s: memexport2 failed\n", name);
+    ++g_harness_errors;
+    return;
+  }
+  // CPU writes to the overlapping region [0x200, 0x300) after both exports.
+  GuestWrite(base, 0x200, Pattern(0x100, 213));
+  g_acc->Flush();  // both completions processed, readbacks apply
+  // The first readback applies, rebases the second's snapshot.
+  // The second readback should merge correctly using the refreshed snapshot.
+  Verify(name, d, base, nullptr);
+}
+
 // A 1x resolve (render target copy) overlapping a loaded texture's memory,
 // then the texture is sampled. The resolved bytes are mirrored into guest RAM
 // so the guest stays the oracle (the reference load sees the same bytes).
@@ -1198,6 +1263,9 @@ int main(int argc, char** argv) {
       {"memexport_cpu_writes_then_draw_cpu_loaded", [](const char* n) { MemexportScenario(n, kRgba64, false, Mx::kCpuWritesThenDrawThenLater); }},
       {"memexport_cpu_overwrites_export", [](const char* n) { MemexportScenario(n, kDxt1_128, true, Mx::kCpuOverwritesExport); }},
       // 8b. GPU-ordered memexport (orderings a to d from the noise counts).
+      // 8c. New deterministic scenarios for the readback fix.
+      {"memexport_race_cpu_store", [](const char* n) { MemexportRaceCpuStoreScenario(n, kDxt1_128); }},
+      {"memexport_rebase_overlap", [](const char* n) { MemexportRebaseOverlapScenario(n, kDxt1_128); }},
       {"mx_gpu_load_then_export", [](const char* n) { MemexportGpuScenario(n, kDxt1_128, Gx::kLoadThenExport); }},
       {"mx_gpu_export_then_resident_load", [](const char* n) { MemexportGpuScenario(n, kDxt1_128, Gx::kExportThenResidentLoad); }},
       {"mx_gpu_export_then_cpu_page_write_cpu_load", [](const char* n) { MemexportGpuScenario(n, kDxt1_128, Gx::kExportThenCpuPageWriteCpuLoad); }},

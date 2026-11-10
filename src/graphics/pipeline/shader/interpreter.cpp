@@ -285,6 +285,7 @@ void ShaderInterpreter::ExecuteAluInstruction(ucode::AluInstruction instr) {
             GetFloatConstant(vector_src_register, instr.src_const_is_addressed(1 + i),
                              instr.is_const_address_register_relative());
         vector_src_ptr = vector_src_float_constant.data();
+        vector_src_absolute = instr.abs_constants();
       }
       uint32_t vector_src_absolute_mask = ~(uint32_t(vector_src_absolute) << 31);
       uint32_t vector_src_negate_bit = uint32_t(instr.src_negate(1 + i)) << 31;
@@ -590,6 +591,7 @@ void ShaderInterpreter::ExecuteAluInstruction(ucode::AluInstruction instr) {
             GetFloatConstant(scalar_src_register, instr.src_const_is_addressed(3),
                              instr.is_const_address_register_relative());
         scalar_src_ptr = scalar_src_float_constant.data();
+        scalar_src_absolute = instr.abs_constants();
       }
       uint32_t scalar_src_swizzle = instr.src_swizzle(3);
       scalar_operand_component_count = scalar_opcode_info.single_operand_is_two_component ? 2 : 1;
@@ -600,8 +602,9 @@ void ShaderInterpreter::ExecuteAluInstruction(ucode::AluInstruction instr) {
     } break;
     case 2: {
       scalar_operand_component_count = 2;
-      uint32_t scalar_src_absolute_mask = ~(uint32_t(instr.abs_constants()) << 31);
-      uint32_t scalar_src_negate_bit = uint32_t(instr.src_negate(3)) << 31;
+      // abs_constants applies to both the constant and the temp operand, as
+      // in ParsedAluInstruction (translator.cpp).
+      scalar_src_absolute = instr.abs_constants();
       uint32_t scalar_src_swizzle = instr.src_swizzle(3);
       // c#.w.
       scalar_operands[0] = GetFloatConstant(instr.src_reg(3), instr.src_const_is_addressed(3),

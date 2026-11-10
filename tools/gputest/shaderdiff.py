@@ -557,7 +557,8 @@ def compile_metallib(src):
     """xcrun metal source -> src.metallib with safe math (matches the
     runtime MTLMathModeSafe). Returns an error line or None."""
     rc, out, err = run(["xcrun", "-sdk", "macosx", "metal", "-std=metal3.1", "-fno-fast-math",
-                        "-Wno-unused-variable", src, "-o", src + ".metallib"], timeout=600)
+                        "-Wno-unused-variable"] + os.environ.get("SHADERDIFF_METAL_FLAGS", "").split()
+                       + [src, "-o", src + ".metallib"], timeout=600)
     if rc != 0:
         first = [l for l in err.splitlines() if "error" in l][:1]
         return first[0] if first else err[-300:]

@@ -23,6 +23,9 @@ static_assert(REX_PLATFORM_LINUX || REX_PLATFORM_MAC, "This file is POSIX-only")
 #include <memory>
 
 #include <pthread.h>
+#if defined(__APPLE__)
+#include <pthread/qos.h>
+#endif
 #include <semaphore.h>
 
 #if defined(__APPLE__)
@@ -1405,6 +1408,12 @@ void* PosixCondition<Thread>::ThreadStartRoutine(void* parameter) {
   }
 #endif
   set_current_thread_name("");
+#if defined(__APPLE__)
+  // Guest threads (game, render, audio) at the user-interactive QoS class, as the main thread already is: the
+  // default class lets macOS move them to efficiency cores and delay their wake-ups. Only a thread itself can set
+  // its class once it runs.
+  pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+#endif
 
   auto start_data = static_cast<ThreadStartData*>(parameter);
   assert_not_null(start_data);

@@ -2,8 +2,8 @@
 // the texconf branch refxenos-tex) into refxenos's RuleRegistry, so texture
 // rules show up in `refxenos --rules-md`, rules.json and per-draw rule lists.
 //
-// tex::RuleInfo has no separate hardware-test field yet; for assumed rules the
-// summary text stands in until the library adds one.
+// tex::RuleInfo::hw_test carries the real-hardware test for assumed rules
+// (the library's self-test fails if an assumed rule lacks one).
 
 #include "pipeline/tex_rules_bridge.h"
 
@@ -34,7 +34,7 @@ struct TexRuleTable {
                             (info.summary ? info.summary : ""))
               .c_str();
       bool assumed = info.status == tex::RuleStatus::kAssumed;
-      const char* hw = assumed ? (info.summary ? info.summary : "") : "";
+      const char* hw = info.hw_test ? info.hw_test : "";
       rules.push_back(Rule{id, static_cast<int>(info.version), source, assumed, hw});
       RuleRegistry::Get().Register(&rules.back());
       by_id[info.id] = &rules.back();

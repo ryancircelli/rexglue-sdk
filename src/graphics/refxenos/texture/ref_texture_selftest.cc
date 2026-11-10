@@ -18,6 +18,7 @@
 #include <string>
 
 #include "ref_texture.h"
+#include "ref_rules.h"
 #include "ref_sample.h"
 
 using namespace refxenos::tex;
@@ -284,6 +285,17 @@ int main() {
   if (bc) std::printf("BC: %d disagreements larger than 1/255\n", bc);
   f += bc;
   f += TestSample();
+  {
+    size_t n = 0;
+    const RuleInfo* rules = GetRules(&n);
+    for (size_t i = 0; i < n; ++i) {
+      if (rules[i].status == RuleStatus::kAssumed &&
+          (!rules[i].hw_test || !*rules[i].hw_test)) {
+        std::printf("rule %s is assumed but has no hw_test\n", rules[i].id);
+        ++f;
+      }
+    }
+  }
   std::printf("%s\n", f ? "FAIL" : "PASS");
   return f ? 1 : 0;
 }

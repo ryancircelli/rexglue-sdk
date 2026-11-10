@@ -387,3 +387,122 @@ TEST_CASE("Four script pads take players 1-4 and survive a scripted unplug", "[i
   players = Players(input);
   CHECK(players[base + 1] == 1);
 }
+
+#include <rex/input/script/script_events.h>
+#include <rex/logging.h>
+
+TEST_CASE("Pad scripts parse wait steps", "[input][script]") {
+  std::string error;
+  const auto steps = sc::ParseScript(
+      "1:a, wait_event lobby_open 40, 2:start; wait_log Local lobby open, 30:wait_log \"in a "
+      "match, really\" 90\n0-1:b wait_event two words, wait_bogus x",
+      &error);
+  REQUIRE(steps.size() == 6);
+  CHECK(steps[0].segment == 0);
+  CHECK(steps[1].wait == sc::Step::Wait::kEvent);
+  CHECK(steps[1].target == "lobby_open");
+  CHECK(steps[1].timeout == 40);
+  CHECK(steps[2].segment == 1);
+  CHECK(steps[3].wait == sc::Step::Wait::kLog);
+  CHECK(steps[3].target == "Local lobby open");
+  CHECK(steps[3].timeout == sc::kDefaultWaitTimeout);
+  CHECK(steps[4].target == "in a match, really");
+  CHECK(steps[4].start == 30);
+  CHECK(steps[4].timeout == 90);
+  CHECK(steps[5].segment == 3);
+  CHECK(steps[5].controls == rex::input::X_INPUT_GAMEPAD_B);
+  // A wait has to start its own piece; here it is read as bad timed steps.
+  CHECK(error.find("\"wait_event\"") != std::string::npos);
+  CHECK(error.find("wait_bogus") != std::string::npos);
+}
+
+namespace {
+
+uint16_t Buttons(sc::ScriptInputDriver& driver, uint32_t pad = 0) {
+  X_INPUT_STATE state = {};
+  if (driver.GetDeviceState(static_cast<rex::input::DeviceId>(
+                                sc::ScriptInputDriver::kScriptPadBase + pad),
+                            &state) != X_ERROR_SUCCESS) {
+    return 0xFFFF;
+  }
+  return state.gamepad.buttons;
+}
+
+}  // namespace
+
+TEST_CASE("A script waits for an event, then times later steps from it", "[input][script]") {
+  sc::ResetScriptEvents();
+  double now = 0;
+  sc::ScriptInputDriver driver(
+      {sc::ParseScript("0-1:a, wait_event lobby_open 60, 2-3:start"),
+       sc::ParseScript("wait_event lobby_open, 1-2:x")},
+      35, [&now] { return now; });
+  CHECK(Buttons(driver) == rex::input::X_INPUT_GAMEPAD_A);
+  now = 2.5;
+  CHECK(Buttons(driver) == 0);  // waiting
+  now = 30;
+  CHECK(Buttons(driver) == 0);
+  CHECK(Buttons(driver, 1) == 0);
+  rex::input::SignalScriptEvent("lobby_open");
+  now = 31;
+  CHECK(Buttons(driver) == 0);  // 1 s after the event: nothing yet
+  CHECK(Buttons(driver, 1) == 0);
+  now = 32.5;  // pad 2 has waited since 0 and saw the event at 31
+  CHECK(Buttons(driver, 1) == rex::input::X_INPUT_GAMEPAD_X);
+  CHECK(Buttons(driver) == 0);
+  now = 33.5;
+  CHECK(Buttons(driver) == rex::input::X_INPUT_GAMEPAD_START);
+}
+
+TEST_CASE("Each pad takes its own copy of a signal, sent early or late", "[input][script]") {
+  sc::ResetScriptEvents();
+  double now = 0;
+  rex::input::SignalScriptEvent("go");  // before anyone waits
+  sc::ScriptInputDriver driver(
+      {sc::ParseScript("wait_event go, 0-1:a"), sc::ParseScript("wait_event go, 0-1:b")}, 35,
+      [&now] { return now; });
+  now = 0.5;  // both waits end at once, and their steps start from here
+  CHECK(Buttons(driver) == rex::input::X_INPUT_GAMEPAD_A);
+  CHECK(Buttons(driver, 1) == rex::input::X_INPUT_GAMEPAD_B);
+  now = 1.6;
+  CHECK(Buttons(driver) == 0);
+  // The one signal is used up: a second wait would block.
+  CHECK(sc::ScriptEventCount("go") == 1);
+}
+
+TEST_CASE("A wait gives up after its timeout", "[input][script]") {
+  sc::ResetScriptEvents();
+  double now = 0;
+  sc::ScriptInputDriver driver({sc::ParseScript("wait_event never 5, 1-2:y")}, 35,
+                               [&now] { return now; });
+  now = 4;
+  CHECK(Buttons(driver) == 0);
+  now = 5;
+  CHECK(Buttons(driver) == 0);  // gave up here
+  now = 6.5;
+  CHECK(Buttons(driver) == rex::input::X_INPUT_GAMEPAD_Y);
+}
+
+TEST_CASE("wait_log goes on when a log line contains the text", "[input][script]") {
+  sc::ResetScriptEvents();
+  double now = 0;
+  sc::ScriptInputDriver driver({sc::ParseScript("wait_log \"Local lobby open\" 60, 0-1:a")}, 35,
+                               [&now] { return now; });
+  now = 1;
+  CHECK(Buttons(driver) == 0);
+  sc::OnLogLine("[controllers] Local lobby closed");
+  now = 2;
+  CHECK(Buttons(driver) == 0);
+  sc::OnLogLine("[controllers] Local lobby open");
+  now = 3;  // seen now; A goes down at once
+  CHECK(Buttons(driver) == rex::input::X_INPUT_GAMEPAD_A);
+  now = 4.5;
+  CHECK(Buttons(driver) == 0);
+}
+
+TEST_CASE("wait_log hears lines through the SDK logger", "[input][script]") {
+  sc::ResetScriptEvents();
+  sc::WatchLogText("marker for the wait test");
+  REXLOG_INFO("a marker for the wait test, logged");
+  CHECK(sc::ScriptEventCount(sc::LogEventName("marker for the wait test")) == 1);
+}

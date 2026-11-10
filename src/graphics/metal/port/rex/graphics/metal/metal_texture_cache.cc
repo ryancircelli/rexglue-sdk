@@ -149,6 +149,11 @@ void TexTrace(const char* name) {
 
 DEFINE_bool(metal_force_bc_decompress, false,
             "Force BC1/2/3/5/DXN decompression to RGBA8/RG8 (debug).", "Metal");
+DEFINE_bool(metal_use_native_bc_textures, false,
+            "Use Metal's native BC sampling instead of reference-compatible "
+            "compute "
+            "decompression. Native sampling can differ by 1-2 UNORM steps.",
+            "Metal");
 DEFINE_bool(metal_texture_cache_use_private, true,
             "Use MTLStorageModePrivate for Metal texture cache textures when "
             "GPU upload paths support it.",
@@ -1754,7 +1759,12 @@ bool MetalTextureCache::IsDecompressionNeededForKey(TextureKey key) const {
     case xenos::TextureFormat::k_DXT2_3:
     case xenos::TextureFormat::k_DXT4_5:
     case xenos::TextureFormat::k_DXN: {
-      if (REXCVAR_GET(metal_force_bc_decompress)) {
+      // Metal's fixed-function BC decoder differs from Xenos on real Town
+      // fence and M1911 textures. Keep compute decompression as the default;
+      // it stays within one UNORM8 step of refxenos for these assets. The
+      // native path remains available for performance experiments.
+      if (REXCVAR_GET(metal_force_bc_decompress) ||
+          !REXCVAR_GET(metal_use_native_bc_textures)) {
         return true;
       }
       // BC support is GPU-family dependent on Apple GPUs. Creating BC textures

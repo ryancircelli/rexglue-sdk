@@ -7,6 +7,7 @@ Writes <generated>/rex/{graphics,ui}/shaders/bytecode/metal/<name>.h.
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import tempfile
 
@@ -15,14 +16,73 @@ xenios_root=Path(sys.argv[1]).resolve()
 root=Path(sys.argv[2]).resolve()
 max_jobs=int(sys.argv[3]) if len(sys.argv)>3 else 4
 # Xcode 27's default wrapper may ignore the installed asset toolchain.
-component=__import__('json').loads(subprocess.check_output(['xcodebuild','-showComponent','MetalToolchain','-json'],text=True))
-metal_bin=Path(component['toolchainSearchPath'])/'Metal.xctoolchain/usr/bin'
+def metal_toolchain_bin():
+ try:
+  component=__import__('json').loads(subprocess.check_output(['xcodebuild','-showComponent','MetalToolchain','-json'],text=True))
+  return Path(component['toolchainSearchPath'])/'Metal.xctoolchain/usr/bin'
+ except Exception:
+  # xcodebuild's MobileAsset query is unavailable in some sessions (it needs a
+  # normal user session); xcrun still resolves the same cryptex-mounted asset
+  # toolchain.
+  found=subprocess.check_output(['xcrun','-sdk','macosx','--find','metal'],text=True).strip()
+  return Path(found).parent
+metal_bin=metal_toolchain_bin()
 xenia=xenios_root/'src/xenia'
+
+# BC (DXT1/2-3/4-5/DXN) interpolation must round to nearest, as the XDK
+# documents it; XeniOS truncates, which puts the Metal compute BC decoder one
+# UNORM8 step below the Xenos reference. The upstream dep is not modified: the
+# BC load shaders are compiled from a patched copy of the Xenia shader tree.
+metal_dir=Path(__file__).resolve().parents[1]
+dxt_patch=metal_dir/'patches/xenia-dxt-rounding.patch'
+overlay=root/'xenia-shaders'
+bc_shaders={
+ 'texture_load_dxt1_rgba8.cs.xesl',
+ 'texture_load_dxt3_rgba8.cs.xesl',
+ 'texture_load_dxt5_rgba8.cs.xesl',
+ 'texture_load_dxn_rg8.cs.xesl',
+ 'texture_load_dxt3a.cs.xesl',
+ 'texture_load_dxt5a_r8.cs.xesl',
+ 'texture_load_dxt3aas1111_argb4.cs.xesl',
+ 'texture_load_dxt3aas1111_bgra4.cs.xesl',
+}
+
+def prepare_overlay():
+ """Copy the Xenia shader tree and apply the DXT rounding patch to the copy."""
+ patch_tool=shutil.which('patch')
+ if not patch_tool:
+  raise SystemExit('compile_metal_helpers.py: the patch tool is required')
+ for area in ['gpu','ui']:
+  src=xenia/area/'shaders'
+  dst=overlay/area/'shaders'
+  if dst.exists():shutil.rmtree(dst)
+  dst.parent.mkdir(parents=True,exist_ok=True)
+  shutil.copytree(src,dst)
+ result=subprocess.run(
+  [patch_tool,'--batch','--no-backup-if-mismatch','-p1','-i',str(dxt_patch)],
+  cwd=overlay,capture_output=True,text=True)
+ if result.returncode:
+  raise SystemExit('compile_metal_helpers.py: '+str(dxt_patch)+' does not apply:\n'+
+                   result.stdout+result.stderr)
+
+prepare_overlay()
+
 jobs=[]
 for area in ['gpu','ui']:
  for p in (xenia/area/'shaders').glob('*.xesl'):
   if ('ffx_' in p.name or 'fxaa' in p.name) or not re.search(r'\.(vs|ps|cs)\.xesl$',p.name):continue
-  jobs.append((area,p,p.stem.replace('.','_'),[]))
+  if area=='gpu' and p.name in bc_shaders:
+   # Compile from the patched copy; the original tree stays the fallback for
+   # any include the copy does not carry.
+   jobs.append(('gpu',overlay/'gpu/shaders'/p.name,p.stem.replace('.','_'),[],
+                [xenia/'gpu/shaders'],
+                [dxt_patch,
+                 xenia/'gpu/shaders/pixel_formats.xesli',
+                 xenia/'gpu/shaders/texture_load.xesli',
+                 xenia/'gpu/shaders/texture_load_dxt3aas1111.xesli',
+                 p]))
+  else:
+   jobs.append((area,p,p.stem.replace('.','_'),[]))
 for uint in [0,1]:
  for full,bpps in [(False,[32,64]),(True,[8,16,32,64,128])]:
   for bpp in bpps:

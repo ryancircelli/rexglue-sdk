@@ -127,3 +127,12 @@ per core. Classes: `spirv_translate`, `spirv_val`,
 Random inputs are seeded from crc32(shader name, seed), so a run is
 reproducible; `results.jsonl` is written per batch, so a killed run keeps its
 finished batches.
+
+- SDK SPIR-V translator skips texture fetches whose result swizzle is all
+  constants (`tfetch2D r0.1___`), leaving the register unwritten
+  (spirv_translator_fetch.cpp, early return on
+  `!used_result_nonzero_components`). Seen on bo2 ps_2a9417d82e5eba79 and
+  ps_b2181a42e31009fc; applying the store makes both match the interpreter
+  and the native translator.
+- Full bo2 pixel shader run: 98 of the 100 native vs SPIR-V disagreements
+  use `getWeights2D`; that path is the lead for the NaN pixels.

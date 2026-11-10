@@ -185,6 +185,20 @@ class TexCacheStressAccess {
 
   uint64_t LoadCount() { return tc().loaded_texture_data_count(); }
 
+#ifdef REX_METAL_3D_AS_2D_REFRESH
+  // The 2D wrapper a draw sampling the 3D texture of `fetch` as 2D gets
+  // (gpu_3d_to_2d_texture), created on first use.
+  Texture* Wrapper3DAs2D(const xenos::xe_gpu_texture_fetch_t& fetch) {
+    auto* t = static_cast<MetalTextureCache::MetalTexture*>(Find(fetch));
+    if (!t || !cp_->EnsureCommandBuffer() ||
+        !t->GetOrCreate3DAs2DView(xenos::XE_GPU_TEXTURE_SWIZZLE_RGBA,
+                                  xenos::FetchOpDimension::k2D, false)) {
+      return nullptr;
+    }
+    return t->texture_3d_as_2d();
+  }
+#endif
+
   // A resolve / memexport style GPU write: valid with GPU-written data.
   void MarkGpuWritten(uint32_t start, uint32_t length) {
     MetalSharedMemory& s = sm();
@@ -216,6 +230,43 @@ class TexCacheStressAccess {
     }
     std::memcpy(static_cast<uint8_t*>(s.GetBuffer()->contents()) + start,
                 bytes.data(), len);
+    s.RangeWrittenByGpu(start, len);
+    s.MarkGpuWrite(start & (SharedMemory::kBufferSize - 1), len,
+                   cp_->submission_current_);
+    return true;
+  }
+
+  // Same as Memexport, but the export bytes are written by the GPU in
+  // command buffer order (a blit in the open command buffer standing in for
+  // the memexport draw), so loads encoded before it see the old bytes and
+  // loads encoded after it see the new ones, as with a real export.
+  bool MemexportGpu(uint32_t start, const std::vector<uint8_t>& bytes) {
+    if (!cp_->EnsureCommandBuffer()) return false;
+    MetalSharedMemory& s = sm();
+    const uint32_t len = uint32_t(bytes.size());
+    if (!cp_->RequestSharedMemoryRange(
+            MetalCommandProcessor::SharedMemoryRequestReason::kMemexportStream,
+            start, len)) {
+      return false;
+    }
+    MTL::Buffer* staging = cp_->GetMetalDevice()->newBuffer(
+        bytes.data(), len, MTL::ResourceStorageModeShared);
+    if (!staging) return false;
+    MTL::BlitCommandEncoder* blit = cp_->GetSharedMemoryUploadBlitEncoder();
+    if (!blit) {
+      staging->release();
+      return false;
+    }
+    blit->copyFromBuffer(staging, 0, s.GetBuffer(), start, len);
+    cp_->EndSharedMemoryUploadBlitEncoder();
+    cp_->GetCurrentCommandBuffer()->addCompletedHandler(
+        [staging](MTL::CommandBuffer*) { staging->release(); });
+    if (MetalSharedMemory::MemexportPreserveEnabled()) {
+      s.NoteMemexportWrite(start, len);
+    }
+    if (MetalSharedMemory::MemexportReadbackEnabled()) {
+      s.NoteMemexportReadback(start, len, cp_->submission_current_);
+    }
     s.RangeWrittenByGpu(start, len);
     s.MarkGpuWrite(start & (SharedMemory::kBufferSize - 1), len,
                    cp_->submission_current_);
@@ -259,6 +310,9 @@ TexCacheStressAccess* g_acc = nullptr;
 int g_failures = 0;
 int g_harness_errors = 0;
 bool g_verbose = false;
+// When set, Verify takes the base level bytes from here instead of guest RAM:
+// for scenarios where guest RAM itself may hold the wrong bytes.
+const std::vector<uint8_t>* g_expected_base = nullptr;
 
 // ---------------------------------------------------------------------------
 // Guest regions
@@ -330,6 +384,8 @@ struct TexDesc {
   uint32_t mip_max_level;  // 0 = base only
   bool packed_mips;
   const char* name;
+  xenos::DataDimension dimension = xenos::DataDimension::k2DOrStacked;
+  uint32_t depth = 1;  // k3D only
 };
 
 xe_gpu_texture_fetch_t MakeFetch(const TexDesc& d, uint32_t base_phys,
@@ -342,12 +398,18 @@ xe_gpu_texture_fetch_t MakeFetch(const TexDesc& d, uint32_t base_phys,
   f.format = d.format;
   f.endianness = xenos::Endian::kNone;
   f.base_address = base_phys >> 12;
-  f.size_2d.width = d.width - 1;
-  f.size_2d.height = d.height - 1;
+  if (d.dimension == xenos::DataDimension::k3D) {
+    f.size_3d.width = d.width - 1;
+    f.size_3d.height = d.height - 1;
+    f.size_3d.depth = d.depth - 1;
+  } else {
+    f.size_2d.width = d.width - 1;
+    f.size_2d.height = d.height - 1;
+  }
   f.swizzle = 0 | (1 << 3) | (2 << 6) | (3 << 9);
   f.mip_min_level = 0;
   f.mip_max_level = d.mip_max_level;
-  f.dimension = xenos::DataDimension::k2DOrStacked;
+  f.dimension = d.dimension;
   f.packed_mips = d.packed_mips ? 1 : 0;
   f.mip_address = d.mip_max_level ? (mip_phys >> 12) : 0;
   return f;
@@ -436,7 +498,11 @@ bool Verify(const char* scenario, const TexDesc& d, const Region& base,
   Region tb = Alloc(base.size);
   Region tm;
   std::vector<uint8_t> bytes;
-  ReadGuest(base, 0, base.size, bytes);
+  if (g_expected_base) {
+    bytes = *g_expected_base;
+  } else {
+    ReadGuest(base, 0, base.size, bytes);
+  }
   Seed(tb, 0, bytes);
   if (mips) {
     tm = Alloc(mips->size);
@@ -837,6 +903,114 @@ void MemexportScenario(const char* name, const TexDesc& d, bool resident, Mx mod
   Verify(name, d, base, nullptr);
 }
 
+// GPU-ordered memexport (the BO2 streamed-mip writer) into a texture's range,
+// with the readback to guest RAM landing at command buffer completion. The
+// expected bytes are explicit: the seed, then the export, then CPU writes in
+// program order (the guest waited for the export before writing).
+//   kLoadThenExport: texture loaded, export in the same command buffer.
+//   kExportThenResidentLoad: export, then a load (shared memory) before the
+//     readback lands.
+//   kExportThenCpuPageWriteCpuLoad: export, a CPU write elsewhere on every
+//     page of the texture (pages invalid), a load from guest RAM before the
+//     readback lands (CPU source), verified at a later draw.
+//   kExportThenCpuPageWriteReupload: same, but the pages are re-uploaded to
+//     the shared buffer from guest RAM before the readback lands (the upload
+//     must not overwrite the export bytes).
+//   kExportThenCpuPartial: a CPU write into part of the export bytes before
+//     the readback lands (game waited on the GPU fence, which the CP signals
+//     before the Metal command buffer completes).
+//   kExportThenFilePartial: the same through a non-faulting host write
+//     (file read) plus callbacks.
+enum class Gx {
+  kLoadThenExport,
+  kExportThenResidentLoad,
+  kExportThenCpuPageWriteCpuLoad,
+  kExportThenCpuPageWriteReupload,
+  kExportThenCpuPartial,
+  kExportThenFilePartial,
+};
+void MemexportGpuScenario(const char* name, const TexDesc& d, Gx mode) {
+  Region base = Alloc(256 * 1024);
+  xe_gpu_texture_fetch_t f = MakeFetch(d, base.phys, 0);
+  Extents e = GetExtents(f);
+  const uint32_t blen = (e.base + 0xFFF) & ~0xFFFu;
+  std::vector<uint8_t> expected = Pattern(base.size, 110);
+  Seed(base, 0, expected);
+  g_acc->MakeResident(base.phys, blen);
+  g_acc->Materialize(f);
+  g_acc->Flush();
+  const uint32_t xoff = 0x1000, xlen = 0x800;
+  const std::vector<uint8_t> x = Pattern(xlen, 111);
+  auto apply = [&](uint32_t off, const std::vector<uint8_t>& v) {
+    std::copy(v.begin(), v.end(), expected.begin() + off);
+  };
+  if (mode == Gx::kLoadThenExport) {
+    // Make the texture outdated so this draw's load is encoded first.
+    const std::vector<uint8_t> w = Pattern(0x100, 112);
+    GuestWrite(base, 0, w);
+    apply(0, w);
+    g_acc->Materialize(f);
+  }
+  if (!g_acc->MemexportGpu(base.phys + xoff, x)) {
+    std::printf("HARNESS scenario %s: memexport failed\n", name);
+    ++g_harness_errors;
+    return;
+  }
+  apply(xoff, x);
+  switch (mode) {
+    case Gx::kLoadThenExport:
+      break;
+    case Gx::kExportThenResidentLoad:
+      g_acc->Materialize(f);
+      break;
+    case Gx::kExportThenCpuPageWriteCpuLoad:
+    case Gx::kExportThenCpuPageWriteReupload:
+      for (uint32_t off = 0; off < blen; off += 0x1000) {
+        const uint32_t o = off == xoff ? xoff + xlen : off;
+        const std::vector<uint8_t> w = Pattern(0x100, 113 + off);
+        GuestWrite(base, o, w);
+        apply(o, w);
+      }
+      if (mode == Gx::kExportThenCpuPageWriteReupload) {
+        g_acc->MakeResident(base.phys, blen);
+      }
+      g_acc->Materialize(f);
+      break;
+    case Gx::kExportThenCpuPartial:
+    case Gx::kExportThenFilePartial: {
+      const std::vector<uint8_t> w = Pattern(0x40, 114);
+      if (mode == Gx::kExportThenCpuPartial) {
+        GuestWrite(base, xoff + 0x100, w);
+      } else {
+        HostWrite(base, xoff + 0x100, w);
+        HostWriteCallbacks(base, xoff + 0x100, uint32_t(w.size()));
+      }
+      apply(xoff + 0x100, w);
+      break;
+    }
+  }
+  g_acc->Flush();  // the export's command buffer completes; readback lands
+  g_acc->Materialize(f);
+  g_acc->Flush();
+  // Guest RAM must hold the export too (CPU readers and later uploads).
+  std::vector<uint8_t> g;
+  ReadGuest(base, 0, blen, g);
+  if (!std::equal(g.begin(), g.end(), expected.begin())) {
+    uint32_t first = 0, last = 0;
+    while (first < blen && g[first] == expected[first]) ++first;
+    for (uint32_t i = first; i < blen; ++i) {
+      if (g[i] != expected[i]) last = i;
+    }
+    std::printf("FAIL scenario %s: guest RAM at 0x%08X lost the memexport "
+                "(bytes 0x%X..0x%X differ from export-then-CPU order)\n",
+                name, base.phys, first, last);
+    ++g_failures;
+  }
+  g_expected_base = &expected;
+  Verify(name, d, base, nullptr);
+  g_expected_base = nullptr;
+}
+
 // A 1x resolve (render target copy) overlapping a loaded texture's memory,
 // then the texture is sampled. The resolved bytes are mirrored into guest RAM
 // so the guest stays the oracle (the reference load sees the same bytes).
@@ -871,6 +1045,57 @@ void ResolveAliasScenario(const char* name, const TexDesc& d, bool resident,
   }
   Verify(name, d, base, nullptr);
 }
+
+#ifdef REX_METAL_3D_AS_2D_REFRESH
+// A 3D texture sampled as 2D is served from a 2D wrapper of its first slice
+// that lives outside the texture map. After a CPU write the next draw must
+// see the new data in the wrapper, not only in the 3D texture.
+bool ReadWrapper(const char* name, const xe_gpu_texture_fetch_t& f,
+                 std::vector<std::vector<uint8_t>>& levels) {
+  std::string err;
+  auto* w = g_acc->Wrapper3DAs2D(f);
+  if (!w || !g_acc->Readback(w, levels, err)) {
+    std::printf("HARNESS scenario %s: 3D-as-2D wrapper readback failed: %s\n",
+                name, w ? err.c_str() : "no wrapper");
+    ++g_harness_errors;
+    return false;
+  }
+  return true;
+}
+
+void ThreeDAs2DScenario(const char* name) {
+  const TexDesc d = {xenos::TextureFormat::k_8_8_8_8, 32, 32, true, 0, false,
+                     "rgba8 32x32x4 tiled 3d", xenos::DataDimension::k3D, 4};
+  Region base = Alloc(256 * 1024);
+  xe_gpu_texture_fetch_t f = MakeFetch(d, base.phys, 0);
+  Extents e = GetExtents(f);
+  const uint32_t blen = (e.base + 0xFFF) & ~0xFFFu;
+  Seed(base, 0, Pattern(base.size, 60));
+  std::vector<std::vector<uint8_t>> served, ref;
+  // Draw 1 samples it as 2D: the wrapper is made and loaded.
+  if (!g_acc->Materialize(f) || !ReadWrapper(name, f, served)) return;
+  // CPU write over the whole texture, then draw 2 samples it as 2D again.
+  GuestWrite(base, 0, Pattern(blen, 61));
+  if (!g_acc->Materialize(f) || !ReadWrapper(name, f, served)) return;
+  // Reference: a fresh texture at a twin region with the same bytes.
+  Region tb = Alloc(base.size);
+  std::vector<uint8_t> bytes;
+  ReadGuest(base, 0, base.size, bytes);
+  Seed(tb, 0, bytes);
+  xe_gpu_texture_fetch_t rf = MakeFetch(d, tb.phys, 0);
+  if (!g_acc->Materialize(rf) || !ReadWrapper(name, rf, ref)) return;
+  const uint64_t hs = HashLevels(served), hr = HashLevels(ref);
+  if (hs != hr) {
+    std::printf("FAIL scenario %s: 3D texture at guest 0x%08X sampled as 2D "
+                "served stale bytes from its 2D wrapper (expected hash "
+                "%016" PRIX64 ", got %016" PRIX64 "; base %u B)\n",
+                name, base.phys, hr, hs, e.base);
+    ++g_failures;
+  } else if (g_verbose) {
+    std::printf("  ok %s (hash %016" PRIX64 ")\n", name, hs);
+  }
+}
+#endif
 
 struct ScenarioEntry {
   const char* name;
@@ -972,6 +1197,13 @@ int main(int argc, char** argv) {
       {"memexport_cpu_writes_then_draw_later", [](const char* n) { MemexportScenario(n, kDxt1_128, true, Mx::kCpuWritesThenDrawThenLater); }},
       {"memexport_cpu_writes_then_draw_cpu_loaded", [](const char* n) { MemexportScenario(n, kRgba64, false, Mx::kCpuWritesThenDrawThenLater); }},
       {"memexport_cpu_overwrites_export", [](const char* n) { MemexportScenario(n, kDxt1_128, true, Mx::kCpuOverwritesExport); }},
+      // 8b. GPU-ordered memexport (orderings a to d from the noise counts).
+      {"mx_gpu_load_then_export", [](const char* n) { MemexportGpuScenario(n, kDxt1_128, Gx::kLoadThenExport); }},
+      {"mx_gpu_export_then_resident_load", [](const char* n) { MemexportGpuScenario(n, kDxt1_128, Gx::kExportThenResidentLoad); }},
+      {"mx_gpu_export_then_cpu_page_write_cpu_load", [](const char* n) { MemexportGpuScenario(n, kDxt1_128, Gx::kExportThenCpuPageWriteCpuLoad); }},
+      {"mx_gpu_export_then_cpu_page_write_reupload", [](const char* n) { MemexportGpuScenario(n, kDxt1_128, Gx::kExportThenCpuPageWriteReupload); }},
+      {"mx_gpu_export_then_cpu_partial_write", [](const char* n) { MemexportGpuScenario(n, kDxt1_128, Gx::kExportThenCpuPartial); }},
+      {"mx_gpu_export_then_file_partial_write", [](const char* n) { MemexportGpuScenario(n, kDxt1_128, Gx::kExportThenFilePartial); }},
       // 9. Resolve (render target copy) overlapping a loaded texture.
       {"resolve_alias_full_rtt", [](const char* n) { ResolveAliasScenario(n, kRgba64, true, 0, 0, true, 0); }},
       {"resolve_alias_full_base", [](const char* n) { ResolveAliasScenario(n, kRgba64, true, 0, 0, false, 0); }},
@@ -979,6 +1211,10 @@ int main(int argc, char** argv) {
       {"resolve_alias_partial_dxt1", [](const char* n) { ResolveAliasScenario(n, kDxt1_128, true, 0x1000, 0, true, 0); }},
       {"resolve_alias_then_page_reset", [](const char* n) { ResolveAliasScenario(n, kRgba64, true, 0, 0, true, 1); }},
       {"resolve_alias_then_cpu_partial", [](const char* n) { ResolveAliasScenario(n, kDxt1_128, true, 0, 0x1000, true, 2); }},
+#ifdef REX_METAL_3D_AS_2D_REFRESH
+      // 7. A 3D texture sampled as 2D (needs the metal_3d_as_2d_refresh fix).
+      {"3d_as_2d_after_cpu_write", [](const char* n) { ThreeDAs2DScenario(n); }},
+#endif
   };
 
   int ran = 0;

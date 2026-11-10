@@ -6,6 +6,7 @@ add_library(rexinput OBJECT
     device_assignment.cpp
     slot_table.cpp
     script/script_input_driver.cpp
+    script/script_events.cpp
     steam_detect.cpp
     state_log.cpp
     state_merge.cpp

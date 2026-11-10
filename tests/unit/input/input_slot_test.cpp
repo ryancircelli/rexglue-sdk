@@ -712,3 +712,155 @@ TEST_CASE("Hot-plug of one of four identical pads through InputSystem", "[input]
   CHECK(Players(input) == std::map<uint64_t, int32_t>{{2, 0}, {3, 3}, {11, 2}, {14, 1}});
   CHECK(driver->lights[static_cast<DeviceId>(14)] == 1);
 }
+
+// Four identical Xbox Series pads over Bluetooth on macOS: no serial, no USB
+// port, one shared GUID (the GUID below is from a real pad's rex-padtest run).
+
+namespace {
+
+DeviceInfo BtPad(uint64_t id, std::string address = "") {
+  DeviceInfo info;
+  info.id = static_cast<DeviceId>(id);
+  info.name = "Xbox Series X Controller";
+  info.guid = "0500509d5e040000130b00003ba36d04";
+  info.vendor_id = 0x045e;
+  info.product_id = 0x0b13;
+  info.bt_address = std::move(address);
+  return info;
+}
+
+const char* kBtAddresses[] = {"98:7a:14:00:00:01", "98:7a:14:00:00:02", "98:7a:14:00:00:03",
+                              "98:7a:14:00:00:04"};
+
+}  // namespace
+
+TEST_CASE("Bluetooth address normalises and sits after port in the chain",
+          "[input][slots][ids][bt]") {
+  using rex::input::NormalizeBluetoothAddress;
+  using rex::input::IdentitySource;
+  using rex::input::ResolveDeviceIdentity;
+  CHECK(NormalizeBluetoothAddress("F0-B1-7A-21-4C-39") == "f0:b1:7a:21:4c:39");
+  CHECK(NormalizeBluetoothAddress("f0:b1:7a:21:4c:39") == "f0:b1:7a:21:4c:39");
+  CHECK(NormalizeBluetoothAddress("F0B17A214C39") == "f0:b1:7a:21:4c:39");
+  CHECK(NormalizeBluetoothAddress("A886814566F88664").empty());
+  CHECK(NormalizeBluetoothAddress("00-00-00-00-00-00").empty());
+  CHECK(NormalizeBluetoothAddress("").empty());
+
+  const auto bt = ResolveDeviceIdentity(BtPad(1, kBtAddresses[0]));
+  CHECK(bt.source == IdentitySource::kBluetooth);
+  CHECK(bt.key == "bt:98:7a:14:00:00:01");
+  CHECK(bt.unique);
+  CHECK(std::string(rex::input::IdentitySourceName(bt.source)) == "bluetooth");
+
+  DeviceInfo with_serial = BtPad(2, kBtAddresses[0]);
+  with_serial.serial = "3039363131";
+  CHECK(ResolveDeviceIdentity(with_serial).source == IdentitySource::kSerial);
+  DeviceInfo with_port = BtPad(3, kBtAddresses[0]);
+  with_port.location = "14200000";
+  CHECK(ResolveDeviceIdentity(with_port).source == IdentitySource::kLocation);
+
+  DeviceInfo unknown = BtPad(4);
+  unknown.location_note = "GCController has no HID services";
+  const auto fallback = ResolveDeviceIdentity(unknown);
+  CHECK(fallback.source == IdentitySource::kGuid);
+  CHECK(fallback.reason.find("no port or Bluetooth address") != std::string::npos);
+}
+
+TEST_CASE("Four identical Bluetooth pads keep their players", "[input][slots][ids][bt]") {
+  Table t;
+  for (uint64_t i = 1; i <= 4; i++) {
+    CHECK(t.Connect(BtPad(i, kBtAddresses[i - 1])) == i - 1);
+  }
+  CHECK(rex::input::DeviceIdentityKey(t.live[0]) != rex::input::DeviceIdentityKey(t.live[1]));
+
+  // One drops (battery, out of range) and reconnects.
+  t.Disconnect(3);
+  CHECK(t.Connect(BtPad(13, kBtAddresses[2])) == 2);
+
+  // Two drop and reconnect in the other order.
+  t.Disconnect(2);
+  t.Disconnect(4);
+  CHECK(t.Connect(BtPad(14, kBtAddresses[3])) == 3);
+  CHECK(t.Connect(BtPad(12, kBtAddresses[1])) == 1);
+
+  // All four off, back on in reverse order.
+  for (uint64_t id : {1, 12, 13, 14}) {
+    t.Disconnect(id);
+  }
+  CHECK(t.Connect(BtPad(24, kBtAddresses[3])) == 3);
+  CHECK(t.Connect(BtPad(23, kBtAddresses[2])) == 2);
+  CHECK(t.Connect(BtPad(22, kBtAddresses[1])) == 1);
+  CHECK(t.Connect(BtPad(21, kBtAddresses[0])) == 0);
+  CHECK(t.table.Reservations().empty());
+}
+
+TEST_CASE("Without addresses, four Bluetooth pads swap like before", "[input][slots][ids][bt]") {
+  Table t;
+  for (uint64_t i = 1; i <= 4; i++) {
+    t.Connect(BtPad(i));
+  }
+  t.Disconnect(2);
+  t.Disconnect(4);
+  // Only connection order: the first back takes the oldest waiting player.
+  CHECK(t.Connect(BtPad(14)) == 1);
+  CHECK(t.Connect(BtPad(12)) == 3);
+}
+
+TEST_CASE("Pins match a Bluetooth address", "[input][slots][ids][bt]") {
+  const DeviceInfo pad = BtPad(1, kBtAddresses[2]);
+  CHECK(rex::input::PinMatches("bt:98:7a:14:00:00:03", pad));
+  CHECK(rex::input::PinMatches("98:7A:14:00:00:03", pad));
+  CHECK_FALSE(rex::input::PinMatches("bt:98:7a:14:00:00:04", pad));
+}
+
+TEST_CASE("Relaunch: identical Bluetooth pads get the same players from their addresses",
+          "[input][slots][ids][bt]") {
+  auto launch = [&](std::vector<int> enumeration) {
+    InputSystem input(nullptr);
+    auto driver_owner = std::make_unique<IdentityDriver>();
+    IdentityDriver* driver = driver_owner.get();
+    input.AddDriver(std::move(driver_owner));
+    input.SetDeviceAssignment(std::make_unique<SlotAssignment>());
+    uint64_t id = 100;
+    for (int k : enumeration) {
+      driver->Plug(BtPad(id++, kBtAddresses[k]));
+    }
+    std::map<std::string, int32_t> by_address;
+    for (const auto& snap : input.SnapshotDevices()) {
+      by_address[snap.info.bt_address] = snap.user;
+    }
+    return by_address;
+  };
+  const std::map<std::string, int32_t> expected = {{kBtAddresses[0], 0},
+                                                   {kBtAddresses[1], 1},
+                                                   {kBtAddresses[2], 2},
+                                                   {kBtAddresses[3], 3}};
+  CHECK(launch({0, 1, 2, 3}) == expected);
+  CHECK(launch({3, 1, 0, 2}) == expected);
+  CHECK(launch({2, 3, 1, 0}) == expected);
+}
+
+TEST_CASE("Placement order: USB pads by port, then Bluetooth pads by address",
+          "[input][slots][ids][bt]") {
+  std::vector<DeviceInfo> pads = {BtPad(1, kBtAddresses[1]), SeriesPad(2, "14200000"),
+                                  BtPad(3, kBtAddresses[0]), SeriesPad(4, "14100000")};
+  CHECK(rex::input::PlacementOrder(pads) == std::vector<size_t>{3, 1, 2, 0});
+}
+
+TEST_CASE("Hot-plug of one of four Bluetooth pads through InputSystem",
+          "[input][slots][ids][bt]") {
+  InputSystem input(nullptr);
+  auto driver_owner = std::make_unique<IdentityDriver>();
+  IdentityDriver* driver = driver_owner.get();
+  input.AddDriver(std::move(driver_owner));
+  input.SetDeviceAssignment(std::make_unique<SlotAssignment>());
+  for (uint64_t i = 1; i <= 4; i++) {
+    driver->Plug(BtPad(i, kBtAddresses[i - 1]));
+  }
+  CHECK(Players(input) == std::map<uint64_t, int32_t>{{1, 0}, {2, 1}, {3, 2}, {4, 3}});
+  driver->Unplug(2);
+  driver->Unplug(3);
+  driver->Plug(BtPad(13, kBtAddresses[2]));
+  driver->Plug(BtPad(12, kBtAddresses[1]));
+  CHECK(Players(input) == std::map<uint64_t, int32_t>{{1, 0}, {4, 3}, {12, 1}, {13, 2}});
+}

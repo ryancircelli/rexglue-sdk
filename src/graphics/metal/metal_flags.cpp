@@ -17,6 +17,11 @@ DEFINE_int32(metal_backend_telemetry_interval, 120,
              "Number of guest swaps between Metal backend telemetry summaries. "
              "Set to 0 to log only on shutdown.",
              "Metal");
+DEFINE_bool(metal_3d_as_2d_refresh, true,
+            "Reload the 2D copy of a 3D texture sampled as 2D "
+            "(gpu_3d_to_2d_texture) when its guest data was written. Off "
+            "keeps the copy's first contents (the old behaviour).",
+            "Metal");
 DEFINE_bool(metal_constant_payload_cache, false,
             "Reuse identical Metal constant/descriptor payload uploads across "
             "draws within a frame. Disable to A/B hash/cache CPU cost against "

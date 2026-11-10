@@ -55,6 +55,7 @@ config, on the command line (`--metal_retina=false`) or through the environment 
 | Setting | Default | What it does |
 | --- | --- | --- |
 | `metal_title_quirks` | empty | Per-title workarounds, comma separated. Only `fable2` exists (see below). |
+| `metal_3d_as_2d_refresh` | true | Reload the 2D copy of a 3D texture that a shader samples as 2D (`gpu_3d_to_2d_texture`) when its guest data was written. The copy lives outside the texture map, so without this it keeps its first contents for as long as the 3D texture lives. |
 | `metal_native_shaders` | true | Optimize guest pixel shaders with metal-opt. Off also turns off everything below it. |
 | `metal_native_xlate` | true | Translate guest shaders to MSL directly (native translator). |
 | `metal_native_first` | true | Compile the native translation first instead of swapping it in later. |

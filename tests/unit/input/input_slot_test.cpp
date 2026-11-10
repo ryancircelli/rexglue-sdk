@@ -506,3 +506,209 @@ TEST_CASE("wait_log hears lines through the SDK logger", "[input][script]") {
   REXLOG_INFO("a marker for the wait test, logged");
   CHECK(sc::ScriptEventCount(sc::LogEventName("marker for the wait test")) == 1);
 }
+
+// Four identical wired Xbox Series pads on macOS: SDL reports no serial and the
+// same GUID for each (SDL issues #11742, #16566).
+
+namespace {
+
+DeviceInfo SeriesPad(uint64_t id, std::string location = "", std::string path = "") {
+  DeviceInfo info;
+  info.id = static_cast<DeviceId>(id);
+  info.name = "Controller";
+  info.guid = "030000005e040000120b00000000006d";  // ends in 'm': GameController pad
+  info.vendor_id = 0x045e;
+  info.product_id = 0x0b12;
+  info.transport = "usb";
+  info.location = std::move(location);
+  info.path = std::move(path);
+  return info;
+}
+
+}  // namespace
+
+TEST_CASE("Identity chain: serial, then port, then path, then GUID", "[input][slots][ids]") {
+  using rex::input::IdentitySource;
+  using rex::input::ResolveDeviceIdentity;
+
+  // A serial wins even when the port is known, so serial pads behave as before.
+  DeviceInfo with_serial = SeriesPad(1, "14200000");
+  with_serial.serial = "3032363030303139";
+  CHECK(ResolveDeviceIdentity(with_serial).key == "serial:3032363030303139");
+  CHECK(ResolveDeviceIdentity(with_serial).source == IdentitySource::kSerial);
+
+  const auto port = ResolveDeviceIdentity(SeriesPad(2, "14200000"));
+  CHECK(port.key == "port:045e:0b12@14200000");
+  CHECK(port.source == IdentitySource::kLocation);
+  CHECK(port.unique);
+
+  // macOS HIDAPI paths and Linux event nodes change on every replug.
+  for (const char* path :
+       {"DevSrvsID:4294969871", "/dev/input/event7", "/dev/hidraw2", "XInput#1"}) {
+    const auto id = ResolveDeviceIdentity(SeriesPad(3, "", path));
+    CHECK(id.source == IdentitySource::kGuid);
+    CHECK(id.key == "guid:030000005e040000120b00000000006d");
+    CHECK_FALSE(id.unique);
+    CHECK(id.reason.find("connection order") != std::string::npos);
+  }
+  // A Windows HID path names the port.
+  const auto win = ResolveDeviceIdentity(
+      SeriesPad(4, "", "\\\\?\\HID#VID_045E&PID_0B12&IG_00#8&1a2b3c4d&0&0000#{4d1e55b2}"));
+  CHECK(win.source == IdentitySource::kPath);
+  CHECK(win.unique);
+
+  DeviceInfo unlocated = SeriesPad(5);
+  unlocated.location_note = "no free player index to tag the GameController pad with";
+  CHECK(ResolveDeviceIdentity(unlocated).reason.find("no free player index") != std::string::npos);
+}
+
+TEST_CASE("Without ports, four identical pads share one key", "[input][slots][ids]") {
+  // The fallback that existed before ports: GUID plus connection order. One pad
+  // replugged gets its player back; two replugged in swapped order swap.
+  Table t;
+  for (uint64_t i = 1; i <= 4; i++) {
+    CHECK(t.Connect(SeriesPad(i)) == i - 1);
+  }
+  CHECK(rex::input::DeviceIdentityKey(SeriesPad(1)) == rex::input::DeviceIdentityKey(SeriesPad(4)));
+  t.Disconnect(3);
+  CHECK(t.Connect(SeriesPad(13)) == 2);
+
+  t.Disconnect(2);  // player 2 leaves first
+  t.Disconnect(4);  // then player 4
+  // The pad that was player 4 is plugged back first: it cannot be told apart
+  // and takes the oldest waiting player.
+  CHECK(t.Connect(SeriesPad(14)) == 1);
+  CHECK(t.Connect(SeriesPad(12)) == 3);
+}
+
+TEST_CASE("Four identical pads known by port keep their players", "[input][slots][ids]") {
+  const char* ports[] = {"14100000", "14200000", "14300000", "14400000"};
+  Table t;
+  for (uint64_t i = 1; i <= 4; i++) {
+    CHECK(t.Connect(SeriesPad(i, ports[i - 1])) == i - 1);
+  }
+  CHECK(rex::input::DeviceIdentityKey(t.live[0]) != rex::input::DeviceIdentityKey(t.live[1]));
+
+  // Hot-plug of one.
+  t.Disconnect(3);
+  CHECK(t.Connect(SeriesPad(13, ports[2])) == 2);
+
+  // Two leave and come back in swapped order: each finds its own player.
+  t.Disconnect(2);
+  t.Disconnect(4);
+  CHECK(t.Connect(SeriesPad(14, ports[3])) == 3);
+  CHECK(t.Connect(SeriesPad(12, ports[1])) == 1);
+
+  // All four out, back in reverse order.
+  for (uint64_t id : {1, 12, 13, 14}) {
+    t.Disconnect(id);
+  }
+  CHECK(t.Connect(SeriesPad(24, ports[3])) == 3);
+  CHECK(t.Connect(SeriesPad(23, ports[2])) == 2);
+  CHECK(t.Connect(SeriesPad(22, ports[1])) == 1);
+  CHECK(t.Connect(SeriesPad(21, ports[0])) == 0);
+  CHECK(t.table.Reservations().empty());
+}
+
+TEST_CASE("A pad replugged into another port falls back to connection order",
+          "[input][slots][ids]") {
+  Table t;
+  t.Connect(SeriesPad(1, "14100000"));
+  t.Connect(SeriesPad(2, "14200000"));
+  t.Connect(SeriesPad(3, "14300000"));
+  t.Disconnect(2);
+  // Same model, new port: it still gets the player an identical pad left.
+  CHECK(t.Connect(SeriesPad(12, "14400000")) == 1);
+  CHECK(t.table.Reservations().empty());
+
+  // A pad whose port could not be read this time also finds it.
+  t.Disconnect(3);
+  CHECK(t.Connect(SeriesPad(13)) == 2);
+}
+
+TEST_CASE("Serial pads ignore port fallback", "[input][slots][ids]") {
+  Table t;
+  t.Connect(Pad(1, "A"));
+  t.Connect(SeriesPad(2, "14200000"));
+  t.Disconnect(1);
+  // A serial-less pad of another model does not take a serial pad's player.
+  CHECK(t.Connect(SeriesPad(3, "14300000")) == 2);
+  // A serial pad does not take a serial-less pad's player by model either.
+  t.Disconnect(2);
+  DeviceInfo same_model_with_serial = SeriesPad(4, "14200000");
+  same_model_with_serial.serial = "S";
+  CHECK(t.Connect(same_model_with_serial) == 3);
+  CHECK(t.Connect(Pad(5, "A")) == 0);
+}
+
+TEST_CASE("Pins match a port", "[input][slots][ids]") {
+  const DeviceInfo pad = SeriesPad(1, "14200000");
+  CHECK(rex::input::PinMatches("14200000", pad));
+  CHECK(rex::input::PinMatches("port:14200000", pad));
+  CHECK(rex::input::PinMatches("PORT:045E:0B12@14200000", pad));
+  CHECK_FALSE(rex::input::PinMatches("port:14300000", pad));
+  CHECK_FALSE(rex::input::PinMatches("14200000", SeriesPad(2)));
+
+  Table t;
+  t.table.SetPins(rex::input::ParseSlotPins("1=port:14400000;4=port:14100000"));
+  CHECK(t.Connect(SeriesPad(1, "14100000")) == 3);
+  CHECK(t.Connect(SeriesPad(2, "14200000")) == 1);
+  CHECK(t.Connect(SeriesPad(3, "14400000")) == 0);
+}
+
+TEST_CASE("Placement order sorts only port-known pads", "[input][slots][ids]") {
+  std::vector<DeviceInfo> pads = {SeriesPad(1, "14300000"), Pad(2, "A"), SeriesPad(3, "14100000"),
+                                  SeriesPad(4), SeriesPad(5, "14200000")};
+  CHECK(rex::input::PlacementOrder(pads) == std::vector<size_t>{2, 1, 4, 3, 0});
+}
+
+TEST_CASE("Relaunch: identical pads get the same players from their ports",
+          "[input][slots][ids]") {
+  const char* ports[] = {"14100000", "14200000", "14300000", "14400000"};
+  auto launch = [&](std::vector<int> enumeration) {
+    InputSystem input(nullptr);
+    auto driver_owner = std::make_unique<IdentityDriver>();
+    IdentityDriver* driver = driver_owner.get();
+    input.AddDriver(std::move(driver_owner));
+    input.SetDeviceAssignment(std::make_unique<SlotAssignment>());
+    // Every pad is already plugged in at launch, in the OS's order.
+    uint64_t id = 100;
+    for (int port : enumeration) {
+      driver->Plug(SeriesPad(id++, ports[port]));
+    }
+    std::map<std::string, int32_t> by_port;
+    for (const auto& snap : input.SnapshotDevices()) {
+      by_port[snap.info.location] = snap.user;
+    }
+    return by_port;
+  };
+  const std::map<std::string, int32_t> expected = {
+      {"14100000", 0}, {"14200000", 1}, {"14300000", 2}, {"14400000", 3}};
+  CHECK(launch({0, 1, 2, 3}) == expected);
+  CHECK(launch({3, 1, 0, 2}) == expected);
+  CHECK(launch({2, 3, 1, 0}) == expected);
+}
+
+TEST_CASE("Hot-plug of one of four identical pads through InputSystem", "[input][slots][ids]") {
+  InputSystem input(nullptr);
+  auto driver_owner = std::make_unique<IdentityDriver>();
+  IdentityDriver* driver = driver_owner.get();
+  input.AddDriver(std::move(driver_owner));
+  input.SetDeviceAssignment(std::make_unique<SlotAssignment>());
+  driver->Plug(SeriesPad(1, "14300000"));
+  driver->Plug(SeriesPad(2, "14100000"));
+  driver->Plug(SeriesPad(3, "14400000"));
+  driver->Plug(SeriesPad(4, "14200000"));
+  CHECK(Players(input) == std::map<uint64_t, int32_t>{{1, 2}, {2, 0}, {3, 3}, {4, 1}});
+
+  driver->Unplug(4);
+  CHECK(Players(input) == std::map<uint64_t, int32_t>{{1, 2}, {2, 0}, {3, 3}});
+  driver->Unplug(1);
+  CHECK(Players(input) == std::map<uint64_t, int32_t>{{2, 0}, {3, 3}});
+  // Back in swapped order, one poll apart.
+  driver->Plug(SeriesPad(11, "14300000"));
+  CHECK(Players(input)[11] == 2);
+  driver->Plug(SeriesPad(14, "14200000"));
+  CHECK(Players(input) == std::map<uint64_t, int32_t>{{2, 0}, {3, 3}, {11, 2}, {14, 1}});
+  CHECK(driver->lights[static_cast<DeviceId>(14)] == 1);
+}

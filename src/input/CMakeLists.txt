@@ -39,5 +39,13 @@ if(WIN32)
 else()
     target_sources(rexinput PRIVATE sdl/sdl_input_driver.cpp)
 endif()
+if(APPLE)
+    target_sources(rexinput PRIVATE sdl/pad_location_mac.mm)
+    set_source_files_properties(sdl/pad_location_mac.mm PROPERTIES
+        SKIP_PRECOMPILE_HEADERS ON COMPILE_OPTIONS "-fobjc-arc")
+    target_link_libraries(rexinput PUBLIC "-framework GameController" "-framework IOKit")
+else()
+    target_sources(rexinput PRIVATE sdl/pad_location_stub.cpp)
+endif()
 
 target_link_libraries(rexinput PUBLIC rexcore rexui SDL3::SDL3)

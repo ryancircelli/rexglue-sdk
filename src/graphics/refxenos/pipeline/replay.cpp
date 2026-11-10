@@ -158,7 +158,7 @@ void Usage() {
       stderr,
       "usage: refxenos replay TRACE -o DIR [--frame N] [--frames N] "
       "[--draws FIRST:COUNT] [--ps HEX] [--list] [--dump-shaders] [--rop shader|edram] [--full] "
-      "[--probe X,Y] [--probe-out FILE]\n"
+      "[--probe X,Y] [--probe-out FILE] [--dump-guest ADDR:SIZE:FILE]\n"
       "--rop shader is a diagnostic overwrite stub (no depth/blend/alpha test); "
       "edram executes the ROP. In edram mode, draw filters execute preceding draws as history.\n");
 }
@@ -170,7 +170,7 @@ int RunReplay(int argc, char** argv) {
       Usage();
       return argc < 2 ? 2 : 0;
     }
-    std::string trace_path = argv[1], out_path, probe_out;
+    std::string trace_path = argv[1], out_path, probe_out, guest_dump;
     uint32_t frame = 0, frames = 0, first = 0, count = 0;
     bool frame_filter = false, list = false, shader_rop = true, full = false, dump_shaders = false;
     uint64_t ps_hash = 0;
@@ -216,6 +216,8 @@ int RunReplay(int argc, char** argv) {
         Probe::Get().AddPixel(std::stoi(v.substr(0, c)), std::stoi(v.substr(c + 1)));
       } else if (a == "--probe-out")
         probe_out = next();
+      else if (a == "--dump-guest")
+        guest_dump = next();
       else {
         Usage();
         return 2;
@@ -270,6 +272,21 @@ int RunReplay(int argc, char** argv) {
           DrawStats stats;
           auto info = Record(d);
           const auto& regs = *d.regs;
+          if (emit && !guest_dump.empty()) {
+            auto first_sep = guest_dump.find(':');
+            auto second_sep = first_sep == std::string::npos ? first_sep : guest_dump.find(':', first_sep + 1);
+            if (first_sep == std::string::npos || second_sep == std::string::npos)
+              throw std::runtime_error("--dump-guest needs ADDR:SIZE:FILE");
+            uint32_t address = uint32_t(std::stoul(guest_dump.substr(0, first_sep), nullptr, 0));
+            uint32_t size = uint32_t(std::stoul(guest_dump.substr(first_sep + 1, second_sep - first_sep - 1), nullptr, 0));
+            std::vector<uint8_t> bytes(size);
+            if (!memory.Read(address, bytes.data(), size))
+              throw std::runtime_error("--dump-guest range is not present in guest memory");
+            std::ofstream dump(guest_dump.substr(second_sep + 1), std::ios::binary);
+            dump.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+            if (!dump)
+              throw std::runtime_error("cannot write --dump-guest output");
+          }
           if (dump_shaders && emit) {
             std::filesystem::create_directories(dir / "shaders");
             for (const auto& blob : {d.vs, d.ps}) {

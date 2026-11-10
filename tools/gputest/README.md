@@ -134,5 +134,8 @@ finished batches.
   `!used_result_nonzero_components`). Seen on bo2 ps_2a9417d82e5eba79 and
   ps_b2181a42e31009fc; applying the store makes both match the interpreter
   and the native translator.
-- Full bo2 pixel shader run: 98 of the 100 native vs SPIR-V disagreements
-  use `getWeights2D`; that path is the lead for the NaN pixels.
+- Full bo2 pixel shader run: 96 native NaN shaders, all from getWeights on
+  an infinite coordinate (rcp of w = 0): the native translator used the ALU
+  frc helper for the lerp factors. Fixed on metal-nan (904f35d0). Found with
+  firstnan.py, which instruments the native MSL of a kept job and reports
+  the first line whose register becomes NaN.

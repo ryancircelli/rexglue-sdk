@@ -24,6 +24,10 @@ enum class Point : uint32_t {
   // LoadTextureDataFromResidentMemoryImpl: the copy is encoded, the texture
   // not yet marked up to date and watched.
   kResidentAfterCopy,
+  // SharedMemory::SetSystemPageBlocksValidWithGpuDataWritten (end-of-frame
+  // clear_memory_page_state): the GPU-written valid bits are copied into the
+  // staging buffer, the buffers not exchanged yet. base_page is 0.
+  kPageSwapBeforeExchange,
 };
 
 // base_page: the texture key's physical 4 KB page of mip 0.
@@ -40,11 +44,20 @@ inline HookFn g_hook = nullptr;
           (texture).key().base_page);                          \
     }                                                          \
   } while (0)
+#define REX_METAL_TEST_HOOK_AT(point, page)                    \
+  do {                                                         \
+    if (::rex::graphics::metal::test_hooks::g_hook) {          \
+      ::rex::graphics::metal::test_hooks::g_hook(              \
+          ::rex::graphics::metal::test_hooks::Point::point,    \
+          uint32_t(page));                                     \
+    }                                                          \
+  } while (0)
 #define REX_METAL_TEST_FRIEND friend class TexCacheStressAccess;
 
 #else
 
 #define REX_METAL_TEST_HOOK(point, texture) ((void)0)
+#define REX_METAL_TEST_HOOK_AT(point, page) ((void)0)
 #define REX_METAL_TEST_FRIEND
 
 #endif

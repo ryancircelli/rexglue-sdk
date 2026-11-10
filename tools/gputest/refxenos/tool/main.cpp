@@ -3,8 +3,9 @@
 //   refxenos --rules-md              assumed-rules table (research/reference-renderer.md)
 //   refxenos --rules-json            every rule with version, source, assumed flag, hw test
 //   refxenos replay TRACE -o DIR     render a capture, write the rexgpu-replay layout
-//            [--frames N] [--draws FIRST:COUNT] [--full] [--label L]
-//            [--probe X,Y[,DRAW]]... [--probe-out FILE]
+//            [--frame N] [--frames N] [--draws FIRST:COUNT] [--ps HEX]
+//            [--list] [--dump-shaders] [--rop shader|edram] [--full]
+//            [--probe X,Y]... [--probe-out FILE]
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -12,7 +13,7 @@
 #include "output/replay_writer.h"
 
 namespace refxenos {
-int RunReplay(int argc, char** argv);  // pipeline/replay.cpp (weak until wired)
+int RunReplay(int argc, char** argv);  // pipeline/replay.cpp
 }
 
 int main(int argc, char** argv) {

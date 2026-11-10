@@ -1259,7 +1259,7 @@ bool RunPixelQuadRaw(const ShaderProgram& prog, const RegisterFile& regs,
     out[l].ok = ctx.ok;
   }
   FinishNotes(ctx, stats);
-  ++stats.quads;
+  // RasterizeDraw owns DrawStats::quads; the shader contributes pixel counts.
   return ctx.ok;
 }
 

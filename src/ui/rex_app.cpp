@@ -345,7 +345,9 @@ bool ReXApp::SetupPresentation() {
   window_->AddListener(this);
   window_->AddInputListener(this, 0);
 
-  if (REXCVAR_GET(fullscreen)) {
+  // A fullscreen window takes over the screen (its own Space on macOS) whether or not it is activated, so a window
+  // that starts minimized starts windowed.
+  if (REXCVAR_GET(fullscreen) && !REXCVAR_GET(window_start_minimized)) {
     window_->SetFullscreen(true);
   }
   window_->SetMonitor(REXCVAR_GET(monitor));

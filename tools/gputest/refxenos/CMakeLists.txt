@@ -18,8 +18,12 @@ set(SDK_GRAPHICS_SOURCES
   "${SDK_ROOT}/src/graphics/register_file.cpp"
   "${SDK_ROOT}/src/graphics/registers.cpp"
   "${SDK_ROOT}/src/graphics/xenos.cpp"
-  "${SDK_ROOT}/src/graphics/format/ucode.cpp")
-add_library(refxenos_core STATIC ${REFXENOS_SOURCES} ${SDK_GRAPHICS_SOURCES})
+  "${SDK_ROOT}/src/graphics/format/ucode.cpp"
+  "${SDK_ROOT}/src/core/math_gcc.cpp")
+# OBJECT, not STATIC: rules register through static initializers, and a
+# static archive would drop translation units nothing references, losing their
+# rules from the registry (and from --rules-md / rules.json).
+add_library(refxenos_core OBJECT ${REFXENOS_SOURCES} ${SDK_GRAPHICS_SOURCES})
 target_include_directories(refxenos_core PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}/shim"
   "${SDK_ROOT}/include"

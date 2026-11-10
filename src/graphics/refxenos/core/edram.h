@@ -73,6 +73,18 @@ uint32_t EdramPitchTiles(uint32_t surface_pitch_pixels, xenos::MsaaSamples msaa,
 
 bool IsColorFormat64bpp(xenos::ColorRenderTargetFormat format);
 
+// Packed EDRAM color is low dword in bits 0..31 and high dword in bits 32..63.
+// UnpackColor supplies the ROP defaults for absent components (B=0, A=1).
+uint64_t PackColor(xenos::ColorRenderTargetFormat format, const float color[4]);
+void UnpackColor(xenos::ColorRenderTargetFormat format, uint64_t packed, float color[4]);
+uint16_t Float32To16Extended(float value);
+float Float16ExtendedTo32(uint16_t value);
+uint32_t Float32To7e3(float value);
+
+// Depth occupies bits 8..31; stencil occupies bits 0..7.
+uint32_t PackDepthStencil(xenos::DepthRenderTargetFormat format, float depth, uint8_t stencil);
+float UnpackDepth(xenos::DepthRenderTargetFormat format, uint32_t packed);
+
 // A view of a surface placed in EDRAM.
 struct EdramSurface {
   uint32_t base_tile = 0;

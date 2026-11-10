@@ -295,6 +295,12 @@ if(REXGLUE_BUILD_TESTS OR REXGLUE_BUILD_GPUTEST)
     add_test(NAME rexgpu-texconf COMMAND rexgpu-texconf --synthetic)
     set_tests_properties(rexgpu-texconf PROPERTIES
         TIMEOUT 120 LABELS "gpu;metal")
+    # BC decode regression: the Metal compute BC decoder has to reproduce the
+    # XDK rounding (round to nearest) bit for bit.
+    add_test(NAME rexgpu-texconf-bc COMMAND rexgpu-texconf --synthetic
+        --bc-bitexact)
+    set_tests_properties(rexgpu-texconf-bc PROPERTIES
+        TIMEOUT 120 LABELS "gpu;metal")
 
     # CPU-only cross-check of the reference decoder (tiling vs the legacy
     # Untile formula, BC vs bcdec).

@@ -34,7 +34,14 @@
 //   --only SUBSTR           cases whose name contains SUBSTR
 //   --diff-dir DIR          diff PNGs for failing cases (default
 //                           /tmp/bo2/texconf/diff)
+//   --dump N                print up to N differing texels (reference vs
+//                           Metal) with their exact bits, to classify the
+//                           mismatch
 //   --list                  print case names only
+//   --bc-bitexact           BC decode regression: only the BC formats whose
+//                           interpolation the XDK rounds to nearest, and they
+//                           have to match the reference bit for bit (the
+//                           signed compressed views are skipped).
 //   -v                      per-level detail
 //   --metal_force_bc_decompress=true and other cvars are passed through.
 //
@@ -143,6 +150,16 @@ TexConfAccess* g_acc = nullptr;
 bool g_verbose = false;
 std::string g_diff_dir = "/tmp/bo2/texconf/diff";
 bool g_adapter_mode = false;  // no diff PNGs, no per-case printing
+// --bc-bitexact: regression mode for the BC decoder. Only the BC formats
+// whose interpolation the XDK rounds to nearest are run, and they have to
+// match the reference bit for bit. Signed compressed views are skipped: the
+// reference models a snorm view of the decoded data, which Metal does not
+// provide for compressed formats (rule "compressed.signed").
+bool g_bc_bitexact = false;
+// --dump N: print up to N differing texels (reference vs Metal) with their
+// exact bits; used to classify a mismatch (rounding, sign, layout).
+int g_dump_limit = 0;
+int g_dump_count = 0;
 // Runs a function on the command processor thread and waits for it.
 std::function<void(std::function<void()>)> g_run_in_cp;
 
@@ -366,6 +383,16 @@ uint32_t FetchSet(uint32_t v, uint32_t lo, uint32_t n, uint32_t x) {
   return (v & ~m) | ((x << lo) & m);
 }
 
+// Per mip level accounting of one case.
+struct LevelStat {
+  uint64_t comps = 0;      // components compared
+  uint64_t exact = 0;      // bit-exact
+  uint64_t near = 0;       // different but within the tolerance
+  uint64_t over = 0;       // different and over the tolerance
+  uint64_t one_lsb = 0;    // different by exactly one 8-bit step (1/255)
+  double max_err = 0.0;
+};
+
 struct Result {
   enum Kind { kPass, kFail, kError, kUnsupported } kind = kPass;
   std::string msg;
@@ -373,20 +400,43 @@ struct Result {
   double max_err = 0.0;
   std::string worst;  // where the max error is
   std::vector<std::string> rules;
+  std::map<uint32_t, LevelStat> levels;  // per mip level
 };
 
-// Tolerance per component: BC interpolation rounding is allowed to differ by
-// one 8-bit step (Apple's BC decoder vs the XDK formulas); everything else
-// must match within float rounding of the unorm conversions.
-double Tolerance(uint32_t base_format) {
+// Tolerance per component: the BC interpolation must match the XDK
+// formulas exactly (the Metal compute BC decoder rounds to nearest, like the
+// refxenos reference); everything else must match within float rounding of
+// the unorm conversions.
+bool IsBCFormat(uint32_t base_format) {
   switch (base_format) {
     case ref::k_DXT1: case ref::k_DXT2_3: case ref::k_DXT4_5: case ref::k_DXN:
     case ref::k_DXT5A: case ref::k_DXT3A: case ref::k_CTX1:
     case ref::k_DXT3A_AS_1_1_1_1:
-      return 1.0 / 255.0 + 1e-6;
+      return true;
     default:
-      return 2e-6;
+      return false;
   }
+}
+
+// The BC formats whose colour / alpha interpolation the XDK rounds to
+// nearest. These are the ones the Metal compute BC decoder has to reproduce
+// bit for bit (see the --bc-bitexact regression mode).
+bool IsRoundedBCFormat(uint32_t base_format) {
+  switch (base_format) {
+    case ref::k_DXT1: case ref::k_DXT2_3: case ref::k_DXT4_5: case ref::k_DXN:
+    case ref::k_DXT5A:
+      return true;
+    default:
+      return false;
+  }
+}
+
+double Tolerance(uint32_t base_format) {
+  if (g_bc_bitexact && IsRoundedBCFormat(base_format)) {
+    // Regression mode: the BC decode has to be bit exact.
+    return 0.0;
+  }
+  return IsBCFormat(base_format) ? 1.0 / 255.0 + 1e-6 : 2e-6;
 }
 
 uint32_t BaseFormatOf(uint32_t f) {
@@ -500,6 +550,15 @@ Result RunCase(const Case& c, LevelOutputs* metal_out = nullptr,
   if (all_constant) {
     // SwizzleSigns (util.cpp:537-547): all-signed fetch -> signed view.
     if (all_signs == 0x55) need_signed = true; else need_unsigned = true;
+  }
+  if (g_bc_bitexact && need_signed) {
+    // Metal binds no separate signed view of a compressed texture, while the
+    // reference models one (rule "compressed.signed"). Out of scope for the
+    // BC decode regression.
+    Free(region);
+    res.kind = Result::kUnsupported;
+    res.msg = "signed compressed view";
+    return res;
   }
 
   xenos::FetchOpDimension dim;
@@ -617,27 +676,49 @@ Result RunCase(const Case& c, LevelOutputs* metal_out = nullptr,
       if (lvl_out) lvl_out->insert(lvl_out->end(), got.begin(), got.end());
       // Compare.
       bool level_fail = false;
+      LevelStat& ls = res.levels[level];
       for (size_t t = 0; t < size_t(w) * h; ++t) {
         for (uint32_t i = 0; i < 4; ++i) {
           float a = rt.rgba[ref_off + t * 4 + i];
           float b = got[t * 4 + i];
           ++res.comps;
+          ++ls.comps;
           bool both_nan = (a != a) && (b != b);
           if (both_nan || std::memcmp(&a, &b, 4) == 0) {
             ++res.exact;
+            ++ls.exact;
             continue;
           }
           double e = std::fabs(double(a) - double(b));
           if (a != a || b != b) e = INFINITY;
           if (e > res.max_err) {
             res.max_err = e;
-            char buf[200];
+            char buf[240];
             std::snprintf(buf, sizeof(buf),
                           "L%u s%u (%zu,%zu).%c ref=%.7g metal=%.7g", level,
                           slice, t % w, t / w, "xyzw"[i], a, b);
             res.worst = buf;
           }
-          if (e > tol) level_fail = true;
+          ls.max_err = std::max(ls.max_err, e);
+          if (e > tol) {
+            ++ls.over;
+            level_fail = true;
+          } else {
+            ++ls.near;
+          }
+          // One 8-bit step: the classic BC interpolation rounding difference.
+          if (std::fabs(e - 1.0 / 255.0) < 1e-5) ++ls.one_lsb;
+          if (g_dump_limit > 0 && g_dump_count < g_dump_limit) {
+            ++g_dump_count;
+            uint32_t ab, bb;
+            std::memcpy(&ab, &a, 4);
+            std::memcpy(&bb, &b, 4);
+            std::printf(
+                "DUMP %s L%u s%u texel(%u,%u).%c ref=%.9g(0x%08X) "
+                "metal=%.9g(0x%08X) diff=%.9g\n",
+                c.name.c_str(), level, slice, uint32_t(t % w), uint32_t(t / w),
+                "xyzw"[i], a, ab, b, bb, e);
+          }
         }
       }
       if (level_fail) {
@@ -743,6 +824,64 @@ uint32_t Log2Floor(uint32_t v) {
   return r;
 }
 
+// Exact upper bounds for the synthetic guest-memory ranges, computed from the
+// independent reference layout. This keeps the random corpus small while
+// covering non-linear tiled address spans and packed mip tails.
+std::pair<uint32_t, uint32_t> SynthAddressRangeSizes(const uint32_t d[6]) {
+  uint32_t dw[6];
+  std::memcpy(dw, d, sizeof(dw));
+  constexpr uint32_t kBasePage = 0x1000;
+  constexpr uint32_t kMipPage = 0x4000;
+  dw[1] = FetchSet(dw[1], 12, 20, kBasePage);
+  dw[5] = FetchSet(dw[5], 12, 20, kMipPage);
+  ref::Fetch f = ref::Fetch::Parse(dw);
+  ref::LevelRange levels = ref::GetLevelRange(f, nullptr);
+  uint32_t ends[2] = {f.base_address(), f.mip_address()};
+  const uint32_t base_addresses[2] = {f.base_address(), f.mip_address()};
+  const ref::FormatInfo& fi = ref::GetFormatInfo(f.format);
+  for (uint32_t level = levels.min_level; level <= levels.max_level; ++level) {
+    bool is_base = level == 0;
+    ref::LevelLocation loc;
+    ref::Diag diag;
+    if (!ref::GetLevelLocation(f, level, &loc, &diag)) return {0, 0};
+    uint32_t range = is_base ? 0 : 1;
+    uint32_t layers = f.dimension == ref::kDim3D ? 1 : f.layers();
+    uint32_t blocks_x = (loc.width + fi.block_w - 1) / fi.block_w;
+    uint32_t blocks_y = (loc.height + fi.block_h - 1) / fi.block_h;
+    for (uint32_t layer = 0; layer < layers; ++layer) {
+      for (uint32_t z = 0; z < (f.dimension == ref::kDim3D ? loc.depth : 1u);
+           ++z) {
+        for (uint32_t by = 0; by < blocks_y; ++by) {
+          for (uint32_t bx = 0; bx < blocks_x; ++bx) {
+            uint32_t x = bx + loc.tail_x_blocks;
+            uint32_t y = by + loc.tail_y_blocks;
+            uint32_t zz = z + loc.tail_z;
+            uint32_t address = loc.address + layer * loc.layer_stride_bytes;
+            if (f.tiled) {
+              address += f.dimension == ref::kDim3D
+                  ? ref::TiledOffset3D(x, y, zz, loc.row_pitch_blocks,
+                                       loc.slice_rows_blocks,
+                                       fi.bytes_per_block())
+                  : ref::TiledOffset2D(x, y, loc.row_pitch_blocks,
+                                       fi.bytes_per_block());
+            } else {
+              address += (zz * loc.slice_rows_blocks + y) *
+                             loc.row_pitch_bytes +
+                         x * fi.bytes_per_block();
+            }
+            ends[range] = std::max(ends[range], address + fi.bytes_per_block());
+          }
+        }
+      }
+    }
+  }
+  auto padded = [&](uint32_t i) {
+    uint32_t size = ends[i] - base_addresses[i];
+    return (size + 4095u) & ~4095u;
+  };
+  return {padded(0), padded(1)};
+}
+
 bool MakeSynthCase(const SynthFormat& sf, const SynthShape& sh, uint32_t endian,
                    uint32_t sign_mode, uint32_t swizzle, int32_t exp_adjust,
                    uint32_t seed, const char* tag, Case* out) {
@@ -771,18 +910,8 @@ bool MakeSynthCase(const SynthFormat& sf, const SynthShape& sh, uint32_t endian,
   uint32_t max_level = std::min(sh.max_level, Log2Floor(std::max(sh.w, std::max(sh.h, sh.dimension == ref::kDim3D ? sh.d : 1u))));
   d[4] = (0u << 2) | (max_level << 6);
   d[5] = (sh.dimension << 9) | ((sh.packed ? 1u : 0) << 11);
-  // Sizes from the SDK layout (allocation only; the comparison does not use
-  // them).
-  uint32_t base_size = 0, mip_size = 0;
-  rex::graphics::texture_util::GetTextureTotalSize(
-      xenos::DataDimension(sh.dimension), pitch_div32, sh.w, sh.h,
-      sh.dimension == ref::kDimCube ? 6 : sh.d, sh.tiled,
-      xenos::TextureFormat(sf.format), max_level, sh.packed, &base_size,
-      &mip_size);
-  if (!base_size) return false;
-  // Generous slack: the reference reads whole 32-bit words around blocks.
-  base_size += 4096;
-  if (max_level) mip_size += 4096;
+  auto [base_size, mip_size] = SynthAddressRangeSizes(d);
+  if (!base_size || (max_level && !mip_size)) return false;
   out->base.resize(base_size);
   out->mips.resize(max_level ? mip_size : 0);
   std::mt19937 rng(seed);
@@ -1161,8 +1290,27 @@ int RunCases(std::vector<Case>& cases, const std::string& only, bool list) {
   std::map<std::string, std::array<uint64_t, 4>> per_format;  // pass,fail,err,unsup
   std::map<std::string, double> per_format_maxerr;
   std::map<std::string, std::pair<uint64_t, uint64_t>> per_format_exact;
+  // Per (format, tiling) and per (format, tiling, mip) mismatch accounting.
+  struct Key {
+    std::string fmt;
+    uint32_t tiled;
+    uint32_t level;
+    bool operator<(const Key& o) const {
+      if (fmt != o.fmt) return fmt < o.fmt;
+      if (tiled != o.tiled) return tiled < o.tiled;
+      return level < o.level;
+    }
+  };
+  std::map<Key, LevelStat> per_key;
+  uint64_t total_comps = 0, total_exact = 0, total_near = 0, total_over = 0,
+           total_one_lsb = 0;
   for (Case& c : cases) {
     if (!only.empty() && c.name.find(only) == std::string::npos) continue;
+    if (g_bc_bitexact) {
+      // Only the BC formats whose interpolation the XDK rounds to nearest.
+      ref::Fetch bf = ref::Fetch::Parse(c.fetch);
+      if (!IsRoundedBCFormat(BaseFormatOf(bf.format))) continue;
+    }
     if (list) {
       std::printf("%s\n", c.name.c_str());
       continue;
@@ -1175,6 +1323,20 @@ int RunCases(std::vector<Case>& cases, const std::string& only, bool list) {
     per_format_exact[fmt].first += r.exact;
     per_format_exact[fmt].second += r.comps;
     per_format_maxerr[fmt] = std::max(per_format_maxerr[fmt], r.max_err);
+    total_comps += r.comps;
+    total_exact += r.exact;
+    for (auto& [level, ls] : r.levels) {
+      LevelStat& agg = per_key[Key{fmt, f.tiled, level}];
+      agg.comps += ls.comps;
+      agg.exact += ls.exact;
+      agg.near += ls.near;
+      agg.over += ls.over;
+      agg.one_lsb += ls.one_lsb;
+      agg.max_err = std::max(agg.max_err, ls.max_err);
+      total_near += ls.near;
+      total_over += ls.over;
+      total_one_lsb += ls.one_lsb;
+    }
     switch (r.kind) {
       case Result::kPass:
         ++passes; ++pf[0];
@@ -1207,9 +1369,32 @@ int RunCases(std::vector<Case>& cases, const std::string& only, bool list) {
                 fmt.c_str(), pf[0], pf[1], pf[2], pf[3], ex.first, ex.second,
                 per_format_maxerr[fmt]);
   }
+  std::printf(
+      "\nmismatch by format / tiling / mip (tiled=1 tiled, 0 linear):\n"
+      "  format                      tiled mip   components   not-bit-exact"
+      "   1-LSB(1/255)   over-tol  max-error\n");
+  for (auto& [k, ls] : per_key) {
+    if (ls.near == 0 && ls.over == 0) continue;
+    std::printf("  %-28s %4u %4u   %10" PRIu64 "   %10" PRIu64 "   %10" PRIu64
+                "   %8" PRIu64 "   %.6g\n",
+                k.fmt.c_str(), k.tiled, k.level, ls.comps, ls.near + ls.over,
+                ls.one_lsb, ls.over, ls.max_err);
+  }
+  std::printf(
+      "\ntotal components %" PRIu64 ", bit-exact %" PRIu64 " (%.4f%%), "
+      "differ within tolerance %" PRIu64 ", differ over tolerance %" PRIu64
+      ", differ by exactly 1/255 %" PRIu64 "\n",
+      total_comps, total_exact,
+      total_comps ? 100.0 * double(total_exact) / double(total_comps) : 0.0,
+      total_near, total_over, total_one_lsb);
   std::printf("texconf: %d pass, %d fail, %d error, %d unsupported\n", passes,
               fails, errors, unsupported);
   std::fflush(stdout);
+  if (g_bc_bitexact && !passes) {
+    // The regression mode must not pass vacuously.
+    std::printf("texconf: no BC cases ran\n");
+    return 2;
+  }
   return fails ? 1 : errors ? 2 : 0;
 }
 
@@ -1227,8 +1412,11 @@ int main(int argc, char** argv) {
     if (a == "-v") g_verbose = true;
     else if (a == "--only" && i + 1 < argc) only = argv[++i];
     else if (a == "--synthetic") synthetic = true;
+    else if (a == "--bc-bitexact") g_bc_bitexact = true;
     else if (a == "--list") list = true;
     else if (a == "--diff-dir" && i + 1 < argc) g_diff_dir = argv[++i];
+    else if (a == "--dump" && i + 1 < argc)
+      g_dump_limit = std::atoi(argv[++i]);
     else if ((a == "--golden-adapter" || a == "--batch") && i + 3 < argc) {
       (a == "--batch" ? adapter_list : adapter_case) = argv[++i];
       adapter_store = argv[++i];
@@ -1250,7 +1438,15 @@ int main(int argc, char** argv) {
   rex::cvar::Init(int(cvar_argv.size()), cvar_argv.data());
   rex::cvar::ApplyEnvironment();
   rex::cvar::FinalizeInit();
-  rex::InitLogging({}, g_verbose ? spdlog::level::info : spdlog::level::warn);
+  {
+    // Console sink: the harness is a CLI tool, and the Metal plugin reports
+    // setup failures through the log (they abort the process).
+    rex::LogConfig log_config;
+    log_config.log_to_console = true;
+    log_config.default_level =
+        g_verbose ? spdlog::level::info : spdlog::level::warn;
+    rex::InitLogging(log_config);
+  }
   ApplyLegacyMetalEnv();
 
   std::vector<Case> cases;

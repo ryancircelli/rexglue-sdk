@@ -23,7 +23,41 @@
 
 namespace dp = disruptorplus;
 
+#include <chrono>
+#include <cstdlib>
+#include <thread>
+
+#include <rex/platform.h>
+#if REX_PLATFORM_WIN32
+#include "platform_win.h"
+#endif
+
 namespace rex::thread {
+
+namespace {
+constexpr auto kPollInterval = std::chrono::microseconds(1000);
+
+// Sleeps for about `d`. Windows' Sleep and condition variable timeouts round up to the system timer period (up to
+// 15.6 ms); a high-resolution waitable timer (Windows 10 1803+) does not.
+void PreciseSleep(std::chrono::steady_clock::duration d) {
+#if REX_PLATFORM_WIN32
+  thread_local HANDLE timer = [] {
+    HANDLE h = CreateWaitableTimerExW(nullptr, nullptr, 0x00000002 /* CREATE_WAITABLE_TIMER_HIGH_RESOLUTION */,
+                                      TIMER_ALL_ACCESS);
+    return h ? h : CreateWaitableTimerExW(nullptr, nullptr, 0, TIMER_ALL_ACCESS);
+  }();
+  if (timer) {
+    LARGE_INTEGER due;
+    due.QuadPart = -std::max<int64_t>(1, std::chrono::duration_cast<std::chrono::nanoseconds>(d).count() / 100);
+    if (SetWaitableTimer(timer, &due, 0, nullptr, nullptr, FALSE)) {
+      WaitForSingleObject(timer, INFINITE);
+      return;
+    }
+  }
+#endif
+  std::this_thread::sleep_for(d);
+}
+}  // namespace
 
 using WaitItem = TimerQueueWaitItem;
 
@@ -66,10 +100,28 @@ class TimerQueue {
 
     while (!stop_token.stop_requested()) {
       {
-        // Consume new wait items and add them to sorted wait queue
-        dp::sequence_t available = claim_strategy_.wait_until_published(
-            next_sequence, next_sequence - 1,
-            wait_queue_.empty() ? clock::time_point::max() : wait_queue_.front()->due_);
+        // Consume new wait items and add them to sorted wait queue. Sleep instead of spinning while nothing is due:
+        // the spin wait strategy kept about a quarter of a CPU busy for the 1 ms KeTimeStampBundle timer alone. New
+        // items are picked up within kPollInterval; a due item fires within the sleep's precision (sub-millisecond).
+        // REX_TIMER_QUEUE_SPIN=1 keeps the old spinning wait (for A/B measurements).
+        static const bool spin = [] {
+          const char* v = std::getenv("REX_TIMER_QUEUE_SPIN");
+          return v && v[0] == '1';
+        }();
+        dp::sequence_t available = next_sequence - 1;
+        if (spin) {
+          available = claim_strategy_.wait_until_published(
+              next_sequence, next_sequence - 1,
+              wait_queue_.empty() ? clock::time_point::max() : wait_queue_.front()->due_);
+        } else for (;;) {
+          available = claim_strategy_.last_published_after(next_sequence - 1);
+          if (available != next_sequence - 1 || stop_token.stop_requested()) break;
+          const auto now = clock::now();
+          if (!wait_queue_.empty() && wait_queue_.front()->due_ <= now) break;
+          auto until = now + kPollInterval;
+          if (!wait_queue_.empty() && wait_queue_.front()->due_ < until) until = wait_queue_.front()->due_;
+          PreciseSleep(until - now);
+        }
 
         // Check for timeout
         if (available != next_sequence - 1) {

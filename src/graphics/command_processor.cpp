@@ -34,9 +34,6 @@
 #include <rex/stream.h>
 #include <rex/system/kernel_state.h>
 #include <rex/system/user_module.h>
-#if REX_GPU_TRACE
-#include "trace/frame_capture.h"
-#endif
 
 REXCVAR_DEFINE_BOOL(vsync, true, "GPU", "Enable vertical sync");
 
@@ -82,6 +79,11 @@ REXCVAR_DEFINE_BOOL(async_shader_compilation, true, "GPU",
                     "threads. This reduces stutter but may cause brief visual artifacts while "
                     "pipelines are being prepared.")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+
+// GPU frame capture (tools/gputest), compiled in with REXGLUE_BUILD_GPUTEST.
+#if REX_GPU_TRACE
+#include "trace/frame_capture.h"
+#endif
 
 namespace rex::graphics {
 

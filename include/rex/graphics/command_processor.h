@@ -130,6 +130,13 @@ class CommandProcessor {
 
   void ExecutePacket(uint32_t ptr, uint32_t count);
 
+  // GPU trace replay: called after the replayer resolves a render target to
+  // guest memory, to make the guest copy of the range current. Backends that
+  // write resolves to guest memory synchronously (Vulkan and D3D12 with
+  // readback_resolve = full) need nothing; backends that keep resolve output
+  // on the GPU (Metal) override it.
+  virtual void TraceReadbackGuestMemory(uint32_t /*physical_address*/, uint32_t /*length*/) {}
+
   bool is_paused() const { return paused_; }
   void Pause();
   void Resume();

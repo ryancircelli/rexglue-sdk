@@ -583,6 +583,7 @@ bool Replayer::ReadbackTarget(int source, uint32_t width, uint32_t height, Targe
 
   hooks_.suppress = true;
   cp_.ExecutePacket(scratch + kScratchPm4Offset, 2);
+  cp_.TraceReadbackGuestMemory(image_address, image_bytes);
   hooks_.suppress = false;
 
   for (size_t i = 0; i < std::size(kReadbackRegisters); ++i) {

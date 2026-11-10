@@ -157,7 +157,12 @@ struct PixelQuad {
   uint8_t coverage[4] = {};
   // Per pixel per sample depth after viewport transform and polygon offset,
   // before the depth format conversion (the ROP rounds to D24 / D24FS8).
-  float sample_z[4][kMaxSamples] = {};
+  // Double so no rounding happens before the documented conversion rule.
+  double sample_z[4][kMaxSamples] = {};
+  // Per pixel: sample index -> covered, indexed in Xenia's sample order
+  // (see raster.cpp kSamplePositions; the ROP maps index -> EDRAM location).
+  // Pixel center position actually used for interpolation (RT pixel space).
+  float center_x[4] = {}, center_y[4] = {};
   // Interpolated PS inputs r0..r15 per pixel (as the shader sees them).
   float interp[4][kMaxInterpolators][4] = {};
   // ps_param_gen register value per pixel (if enabled), already encoded.

@@ -579,6 +579,10 @@ def inject_bug(path, kind):
             a, b = regs[0], regs[1]
             src = src.replace("user(%s)" % a, "user(XE_TMP)").replace("user(%s)" % b, "user(%s)" % a).replace("user(XE_TMP)", "user(%s)" % b)
             n = 1
+    elif kind == "fix_maxa":
+        # Positive control for the native scalar maxas/maxasf clamp: apply
+        # the -256 lower bound the SDK uses and check the mismatch goes away.
+        src, n = re.subn(r"(a0 = int\(fast::min\(fast::max\(fast::floor\([^;]*\)), 0\.0f\)", r"\1, -256.0f)", src)
     else:
         raise SystemExit("unknown --inject %s" % kind)
     if n:
@@ -852,7 +856,7 @@ def main():
     ap.add_argument("--interp-mask", default="", help="hex; default VS: written, PS: all registers")
     ap.add_argument("--bin", default=DEFAULT_BIN)
     ap.add_argument("--msl-xlate", default=os.path.expanduser("~/dev/rexglue-sdk-metal/out/mac-arm64/rexgpu-metal-msl-xlate"))
-    ap.add_argument("--inject", default="", help="negative control: const_offset | interp_swap (plants a bug in the native arm)")
+    ap.add_argument("--inject", default="", help="edit the native MSL: const_offset | interp_swap plant a bug (negative controls); fix_maxa applies the address register clamp fix (positive control)")
     ap.add_argument("--no-patch-vfetch", action="store_true", help="keep vertex fetch formats as dumped (undefined)")
     ap.add_argument("--no-localize", action="store_true")
     ap.add_argument("--batch", type=int, default=40, help="shaders per runner process")

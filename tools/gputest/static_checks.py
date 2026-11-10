@@ -56,11 +56,17 @@ def first_error(text):
     return text.strip()[-300:]
 
 
+AIR_DIR = None
+
+
 def metal_compile(src):
+    # The .air goes to our own output directory: --msl inputs may belong to
+    # another tool or agent and are never written to.
+    air = os.path.join(AIR_DIR, "%x.air" % (hash(src) & 0xFFFFFFFFFFFF))
     rc, _, err = run(["xcrun", "-sdk", "macosx", "metal", "-std=metal3.1", "-fno-fast-math",
-                      "-Wno-unused-variable", "-c", src, "-o", src + ".air"])
+                      "-Wno-unused-variable", "-c", src, "-o", air])
     try:
-        os.remove(src + ".air")
+        os.remove(air)
     except OSError:
         pass
     return None if rc == 0 else first_error(err)
@@ -195,6 +201,9 @@ def main():
         print("note: %s missing, native checks skipped" % args.msl_xlate)
         args.msl_xlate = None
     os.makedirs(args.out, exist_ok=True)
+    global AIR_DIR
+    AIR_DIR = os.path.join(args.out, "air")
+    os.makedirs(AIR_DIR, exist_ok=True)
 
     results = []
     with cf.ThreadPoolExecutor(args.j) as ex:

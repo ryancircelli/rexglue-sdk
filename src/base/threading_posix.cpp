@@ -227,6 +227,22 @@ std::array<std::atomic<bool>, static_cast<size_t>(SignalType::kCount)> g_signal_
 
 static void SignalHandler(int signal, siginfo_t* info, void* context);
 
+/**
+ * Blocks the suspend and user callback signals on the calling thread. Called right before a
+ * thread exits: from then on the thread tears down its thread local storage, and a signal landing
+ * then runs SignalHandler while libmalloc is mid free. Any thread_local access in the handler can
+ * re-instantiate the TLV block (a malloc), which on macOS aborts with "Trying to recursively lock
+ * an os_unfair_lock". Seen at quit, when the title wakes every guest thread while some are
+ * exiting. A blocked signal still pending when the thread dies is discarded.
+ */
+static void BlockThreadSignalsForExit() {
+  sigset_t set;
+  sigemptyset(&set);
+  sigaddset(&set, GetSystemSignal(SignalType::kThreadSuspend));
+  sigaddset(&set, GetSystemSignal(SignalType::kThreadUserCallback));
+  pthread_sigmask(SIG_BLOCK, &set, nullptr);
+}
+
 void InstallSignalHandler(SignalType type) {
   bool expected = false;
   if (!g_signal_handler_installed[static_cast<size_t>(type)].compare_exchange_strong(expected,
@@ -2044,6 +2060,7 @@ void* PosixCondition<Thread>::ThreadStartRoutine(void* parameter) {
 
   thread->handle_.SignalExit(exit_code);
 
+  BlockThreadSignalsForExit();
   g_current_thread = nullptr;
   g_current_thread_condition = nullptr;
   return nullptr;

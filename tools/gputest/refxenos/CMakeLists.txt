@@ -3,6 +3,7 @@
 #   ~/Games/Xbox360/bo2-build/runq/bin/buildq -- ninja -C out/refxenos
 cmake_minimum_required(VERSION 3.20)
 project(refxenos CXX)
+enable_testing()
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Exact IEEE semantics: no fast-math, no FMA contraction (Xenos has separate
@@ -50,4 +51,7 @@ foreach(t ${REFXENOS_TESTS})
   get_filename_component(n ${t} NAME_WE)
   add_executable(refxenos_${n} ${t})
   target_link_libraries(refxenos_${n} PRIVATE refxenos_core)
+  if(NOT n STREQUAL "test_shaderjob")
+    add_test(NAME ${n} COMMAND refxenos_${n})
+  endif()
 endforeach()

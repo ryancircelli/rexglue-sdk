@@ -2006,6 +2006,16 @@ bool MetalTextureCache::TryGpuLoadTexture(Texture& texture, bool load_base,
     return false;
   }
   const TextureKey& key = texture.key();
+  if (!rtt_verify_only_) {
+    // [tex-content-check] a load path that does not record its source hash
+    // must not leave the previous load's hash behind.
+    if (load_base) metal_texture->cc_have_[0] = false;
+    if (load_mips) metal_texture->cc_have_[1] = false;
+    // [resident-load-window] only the resident path re-arms these, after
+    // this load; a CPU-source load must not see a stale flag.
+    if (load_base) metal_texture->resident_load_pending_[0] = false;
+    if (load_mips) metal_texture->resident_load_pending_[1] = false;
+  }
   if (precommit_target_cb_ &&
       ((key.scaled_resolve && !ScaledTexturePrecommitEnabled()) ||
        metal_texture->presented() ||
@@ -5911,6 +5921,14 @@ bool MetalTextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
   }
   TexRenameClearPending(*metal_texture, load_base, load_mips);
   metal_texture->set_loaded_once();
+  if (TexContentCheckInterval()) {
+    TexContentRecord(*metal_texture, load_base, load_mips, 1);
+  }
+  if (ResidentLoadRecheck() && !texture.key().scaled_resolve) {
+    auto global_lock = AcquireGlobalLock();
+    if (load_base) metal_texture->resident_load_pending_[0] = true;
+    if (load_mips) metal_texture->resident_load_pending_[1] = true;
+  }
   if (command_processor_) {
     const TextureKey& texture_key = texture.key();
     const uint64_t upload_bytes =
@@ -5988,8 +6006,9 @@ bool MetalTextureCache::LoadTextureDataFromCpuGuestMemory(Texture& texture,
   // was lost, and the texture kept the old bytes until some later write.
   // Under BO2's image streaming that is the previous occupant of a recycled
   // pool block (fences drawn with a normal map's red/green data). Watch the
-  // pages before copying; a write reported during the load leaves the
-  // texture outdated, so the next use reloads it.
+  // pages before copying; a write reported during the load triggers an
+  // immediate recopy (REX_METAL_CPU_SOURCE_RETRIES, default 3), and if writes
+  // keep landing the texture stays outdated, so the next use reloads it.
   // REX_METAL_CPU_SOURCE_WATCH_FIRST=0 restores the old order.
   const bool watch_first = CpuSourceWatchFirst();
   uint32_t written_during_load = 0;
@@ -6004,60 +6023,83 @@ bool MetalTextureCache::LoadTextureDataFromCpuGuestMemory(Texture& texture,
       load_watches[i] = nullptr;
     }
   };
-  if (watch_first) {
-    auto global_lock = AcquireGlobalLock();
-    if (base_outdated && base_size) {
-      load_watches[0] = shared_memory().WatchMemoryRange(
-          texture_key.base_page << 12, base_size, CpuSourceWatchThunk,
-          &written_during_load, nullptr, 0);
-      shared_memory().WatchRangeForCpuWrites(texture_key.base_page << 12,
-                                             base_size);
-    }
-    if (mips_outdated && mips_size) {
-      load_watches[1] = shared_memory().WatchMemoryRange(
-          texture_key.mip_page << 12, mips_size, CpuSourceWatchThunk,
-          &written_during_load, nullptr, 1);
-      shared_memory().WatchRangeForCpuWrites(texture_key.mip_page << 12,
-                                             mips_size);
-    }
-  }
-
-  if (!TryGpuLoadTexture(texture, base_outdated, mips_outdated,
-                         TextureLoadSourceMode::kCpuGuestMemory)) {
+  // A write reported during the copy means the copy may hold torn or old
+  // data. Copy again right away (a file read reports its pages after the
+  // whole buffer is written, so the second copy normally sees the final
+  // bytes), up to CpuSourceMaxRetries() times; only then leave the written
+  // range outdated so the next use reloads it.
+  const uint32_t max_retries = watch_first ? CpuSourceMaxRetries() : 0;
+  uint32_t retries = 0;
+  for (;;) {
+    written_during_load = 0;
     if (watch_first) {
       auto global_lock = AcquireGlobalLock();
-      end_load_watches(global_lock);
+      if (base_outdated && base_size) {
+        load_watches[0] = shared_memory().WatchMemoryRange(
+            texture_key.base_page << 12, base_size, CpuSourceWatchThunk,
+            &written_during_load, nullptr, 0);
+        shared_memory().WatchRangeForCpuWrites(texture_key.base_page << 12,
+                                               base_size);
+      }
+      if (mips_outdated && mips_size) {
+        load_watches[1] = shared_memory().WatchMemoryRange(
+            texture_key.mip_page << 12, mips_size, CpuSourceWatchThunk,
+            &written_during_load, nullptr, 1);
+        shared_memory().WatchRangeForCpuWrites(texture_key.mip_page << 12,
+                                               mips_size);
+      }
     }
-    return false;
-  }
-  TexRenameClearPending(*metal_texture, base_outdated, mips_outdated);
-  metal_texture->set_loaded_once();
 
-  {
+    if (!TryGpuLoadTexture(texture, base_outdated, mips_outdated,
+                           TextureLoadSourceMode::kCpuGuestMemory)) {
+      if (watch_first) {
+        auto global_lock = AcquireGlobalLock();
+        end_load_watches(global_lock);
+      }
+      return false;
+    }
+    TexRenameClearPending(*metal_texture, base_outdated, mips_outdated);
+    metal_texture->set_loaded_once();
+
     auto global_lock = AcquireGlobalLock();
     if (watch_first) {
       end_load_watches(global_lock);
     }
-    // A written range stays outdated (reloaded on its next use); the other
-    // one is up to date.
+    if (written_during_load && retries < max_retries) {
+      // The pages are still invalid in shared memory (a CPU write only
+      // invalidates), so the CPU source is still the right one.
+      ++retries;
+      continue;
+    }
+    // A range still written after the retries stays outdated (reloaded on
+    // its next use); the other one is up to date.
     const bool base_written = (written_during_load & 1u) != 0;
     const bool mips_written = (written_during_load & 2u) != 0;
     texture.MakeLoadedDataUpToDateAndWatch(
         global_lock, base_outdated && !base_written,
         mips_outdated && !mips_written);
-    if (written_during_load) {
+    if (TexContentCheckInterval()) {
+      TexContentRecord(*metal_texture, base_outdated && !base_written,
+                       mips_outdated && !mips_written, 2);
+    }
+    if (retries || written_during_load) {
       static std::atomic<uint32_t> logged{0};
       const uint32_t n = logged.fetch_add(1, std::memory_order_relaxed);
       if (n < 32 || (n & (n - 1)) == 0) {
         REXLOG_INFO(
             "[cpu-source-watch] write during a CPU-source load (#{}): base "
-            "{:08X} mips {:08X} fmt {} {}x{} ranges {}; reloading on next use",
+            "{:08X} mips {:08X} fmt {} {}x{}: {} retr{}, {}",
             n + 1, uint32_t(texture_key.base_page) << 12,
             uint32_t(texture_key.mip_page) << 12,
             uint32_t(texture_key.format), texture_key.GetWidth(),
-            texture_key.GetHeight(), written_during_load);
+            texture_key.GetHeight(), retries, retries == 1 ? "y" : "ies",
+            written_during_load
+                ? fmt::format("still written (ranges {}), reloading on next use",
+                              written_during_load)
+                : std::string("clean copy"));
       }
     }
+    break;
   }
   if (command_processor_) {
     command_processor_->RecordTextureUploadSourceRoute(
@@ -6146,11 +6188,77 @@ bool MetalTextureCache::CpuSourceWatchFirst() {
   static const bool on = [] {
     const char* v = MetalDebugEnv("CPU_SOURCE_WATCH_FIRST");
     const bool e = !(v && v[0] == '0');
-    REXLOG_INFO("[cpu-source-watch] {} (FABLE2_CPU_SOURCE_WATCH_FIRST)",
+    REXLOG_INFO("[cpu-source-watch] {} (REX_METAL_CPU_SOURCE_WATCH_FIRST)",
                 e ? "on" : "off");
     return e;
   }();
   return on;
+}
+
+bool MetalTextureCache::ResidentLoadRecheck() {
+  static const bool on = [] {
+    const char* v = MetalDebugEnv("RESIDENT_LOAD_RECHECK");
+    const bool r = !(v && v[0] == '0');
+    REXLOG_INFO("[resident-load-window] {} (REX_METAL_RESIDENT_LOAD_RECHECK)",
+                r ? "on" : "off");
+    return r;
+  }();
+  return on;
+}
+
+// [resident-load-window] A resident load checks that its ranges are valid in
+// shared memory (RequestTextureDataRange), encodes the copy from the shared
+// memory buffer, and only later does the caller mark the texture up to date
+// and register its watch. A CPU write in between (a streaming thread filling
+// a recycled image block, typically a mip tail) invalidates the shared memory
+// range while the texture is not watching yet, so the texture was marked up to
+// date with the old bytes. The next request re-uploads the range and nothing
+// ever reloads the texture: a zombie drawn with another image's data until it
+// is evicted. Shared memory ranges only become valid again through a request
+// on this thread, so a range still valid here was not written since the load.
+bool MetalTextureCache::LoadedRangeStillCurrent(Texture& texture,
+                                                bool is_mips) {
+  auto& t = static_cast<MetalTexture&>(texture);
+  const uint32_t i = is_mips ? 1 : 0;
+  const bool pending = t.resident_load_pending_[i];
+  t.resident_load_pending_[i] = false;
+  const TextureKey& key = texture.key();
+  const uint32_t start =
+      (is_mips ? uint32_t(key.mip_page) : uint32_t(key.base_page)) << 12;
+  const uint32_t length =
+      is_mips ? texture.GetGuestMipsSize() : texture.GetGuestBaseSize();
+  if (!pending || !length || shared_memory().IsRangeValid(start, length)) {
+    // Every load route ends here when a range becomes up to date, so the
+    // content verifier takes its reference hash here.
+    if (TexContentCheckInterval()) TexContentMarkCurrent(t, i);
+    return true;
+  }
+  if (TexContentCheckInterval()) t.cc_have_[i] = false;
+  static std::atomic<uint64_t> count{0};
+  const uint64_t n = ++count;
+  if (n <= 32 || (n & (n - 1)) == 0) {
+    REXLOG_INFO(
+        "[resident-load-window] write between a resident load and its watch "
+        "(#{}): {} {:08X}+{} fmt {} {}x{}; reloading on next use",
+        n, is_mips ? "mips" : "base", start, length, uint32_t(key.format),
+        key.GetWidth(), key.GetHeight());
+  }
+  return false;
+}
+
+uint32_t MetalTextureCache::CpuSourceMaxRetries() {
+  static const uint32_t n = [] {
+    const char* v = MetalDebugEnv("CPU_SOURCE_RETRIES");
+    uint32_t r = 3;
+    if (v && v[0] >= '0' && v[0] <= '9') {
+      r = uint32_t(std::strtoul(v, nullptr, 10));
+      if (r > 16) r = 16;
+    }
+    REXLOG_INFO("[cpu-source-watch] up to {} immediate recopies "
+                "(REX_METAL_CPU_SOURCE_RETRIES)", r);
+    return r;
+  }();
+  return n;
 }
 
 void MetalTextureCache::CpuSourceWatchThunk(

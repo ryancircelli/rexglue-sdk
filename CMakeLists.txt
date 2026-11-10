@@ -19,6 +19,7 @@ project(ReXGlue
 # Build Options
 #==========================================================
 option(REXGLUE_BUILD_TESTS       "Build PPC instruction and unit tests" OFF)
+option(REXGLUE_BUILD_GPUTEST     "Build the GPU test harness tools (tools/gputest)" OFF)
 option(REXGLUE_ENABLE_SANITIZERS "Enable UndefinedBehaviorSanitizer" OFF)
 option(REXGLUE_ENABLE_FIDELITYFX "Enable optional AMD FidelityFX integration (experimental)" OFF)
 option(REXGLUE_ENABLE_TRACY                "Enable Tracy profiler integration" ON)
@@ -271,6 +272,11 @@ add_subdirectory(src/rexglue)
 if(REXGLUE_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
+endif()
+
+# GPU test harness (offline shader translation, differential tests, replay)
+if(REXGLUE_BUILD_GPUTEST)
+    add_subdirectory(tools/gputest)
 endif()
 
 include(cmake/rexglue_link_audit.cmake)

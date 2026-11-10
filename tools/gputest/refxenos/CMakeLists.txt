@@ -12,6 +12,10 @@ add_compile_options(-ffp-contract=off -fno-fast-math -Wall -Wno-unused-function)
 get_filename_component(SDK_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../.." ABSOLUTE)
 file(GLOB_RECURSE REFXENOS_SOURCES CONFIGURE_DEPENDS
      "${SDK_ROOT}/src/graphics/refxenos/*.cpp" "${SDK_ROOT}/src/graphics/refxenos/*.cc")
+# The texture library (texconf, branch refxenos-tex) ships its own self-test
+# with a main(); build it as its own executable, not into the core.
+set(REFXENOS_TEX_SELFTEST "${SDK_ROOT}/src/graphics/refxenos/texture/ref_texture_selftest.cc")
+list(REMOVE_ITEM REFXENOS_SOURCES "${REFXENOS_TEX_SELFTEST}")
 # SDK sources with no dependencies beyond headers (register names, ucode
 # helpers, xenos float conversions).
 set(SDK_GRAPHICS_SOURCES
@@ -27,7 +31,8 @@ add_library(refxenos_core OBJECT ${REFXENOS_SOURCES} ${SDK_GRAPHICS_SOURCES})
 target_include_directories(refxenos_core PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}/shim"
   "${SDK_ROOT}/include"
-  "${SDK_ROOT}/src/graphics/refxenos")
+  "${SDK_ROOT}/src/graphics/refxenos"
+  "${SDK_ROOT}/src/graphics/refxenos/third_party")
 find_package(ZLIB REQUIRED)
 target_link_libraries(refxenos_core PUBLIC ZLIB::ZLIB)
 
@@ -36,6 +41,9 @@ if(REFXENOS_TOOL_SOURCES)
   add_executable(refxenos ${REFXENOS_TOOL_SOURCES})
   target_link_libraries(refxenos PRIVATE refxenos_core)
 endif()
+
+add_executable(refxenos_tex_selftest ${REFXENOS_TEX_SELFTEST})
+target_link_libraries(refxenos_tex_selftest PRIVATE refxenos_core)
 
 file(GLOB REFXENOS_TESTS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_*.cpp")
 foreach(t ${REFXENOS_TESTS})

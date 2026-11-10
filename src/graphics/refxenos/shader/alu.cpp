@@ -69,9 +69,20 @@ RX_DEFINE_RULE(xenos_alu_a0_rounding, 1,
                "XDK microcode_alu_scalar_maxas.htm, microcode_alu_scalar_movas.htm, "
                "microcode_alu_vector_maxa.htm (a0 = floor(x + 0.5) (maxasf/movasf: "
                "floor(x)); !(a0 >= -256) -> -256 (NaN too); > 255 -> 255). "
-               "Differs from dxbc_shader_translator_alu.cc:916 which clamps "
-               "maxas to [0, 255]; the XDK pseudocode is followed",
-               false, "");
+               "Agrees with xenia-canary@cf206a3b src/xenia/gpu/shader_interpreter.cc:625-627 "
+               "(maxa) and :860-870 (maxas/maxasf), which clamp to [-256, 255] before "
+               "rounding (same result for every finite input; NaN there goes through "
+               "xe::clamp_float, here it is -256 per the XDK !(F >= -256) test). "
+               "Differs from xenia-canary@cf206a3b src/xenia/gpu/dxbc_shader_translator_alu.cc:916 "
+               "which clamps to [0, 255] (lead ruling: XDK behaviour; translator logged as "
+               "a disagreement)",
+               false,
+               "per input x: maxas a0, c0.x (c0.x = x), then read c[a0+k] for k in "
+               "{0, 1, 255} with c_i = i + 1000, export to a 32_32_32_32_FLOAT "
+               "target. The translator [0,255] clamp makes NaN and negatives read "
+               "1000+k; the XDK clamp gives -256 (out of range even at k=255, i.e. "
+               "c[-1]) and -1 reads c[254] at k=255. Inputs: NaN, -inf, -300, -256.6, "
+               "-1, -0.5, 0.49999997, 1.5, 254.6, 255.4, 300, +inf");
 RX_DEFINE_RULE(xenos_alu_rcp, 1,
                "assumed: rcp = 1/x computed exactly (double) and rounded once "
                "to f32 (round to nearest even), then the XDK special cases, then "

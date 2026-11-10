@@ -90,6 +90,17 @@ RX_DEFINE_RULE(xenos_alu_const_addressing, 1,
                "+ base; >= 512 reads 0); per-lane a0 makes constant "
                "waterfalling transparent",
                false, "");
+RX_DEFINE_RULE(xenos_alu_const_oob_zero, 1,
+               "assumed: a float constant read whose index (after a0/aL) is < 0, "
+               "> SQ_*_CONST.size or whose final index is >= 512 returns (0, 0, 0, 0) "
+               "(XDK leaves out-of-range constant reads unspecified; Xenia "
+               "shader_interpreter.cc:255 returns 0)",
+               true,
+               "VS or PS, c_i = i + 1000 for all 256 constants of the stage, "
+               "SQ_*_CONST.size = 255: for a0 in {-1, -256} (maxas a0, c0.x with "
+               "c0.x = -1.0 / -256.0) read c[a0 + 255] and c[a0 + 0] and export "
+               "them to a 32_32_32_32_FLOAT target; read back the 4 floats for each "
+               "(0 if out-of-range reads give 0; c[254] = 1254 for a0 = -1, k = 255)");
 RX_DEFINE_RULE(xenos_alu_temp_relative_oob, 1,
                "assumed: relative temp index outside [0, 63] reads 0 and drops "
                "writes (D3D indexable temp out of range, as Xenia's x# array)",
@@ -349,9 +360,9 @@ bool ReadTemp(const Lane& lane, int32_t idx, float v[4], uint8_t t[4]) {
 void ReadConst(const Ctx& ctx, int32_t idx, float v[4]) {
   RX_USE(xenos_alu_const_addressing);
   for (int i = 0; i < 4; ++i) v[i] = 0.0f;
-  if (idx < 0 || uint32_t(idx) > ctx.const_size_minus_1) return;
+  if (idx < 0 || uint32_t(idx) > ctx.const_size_minus_1) { RX_USE(xenos_alu_const_oob_zero); return; }
   uint32_t full = uint32_t(idx) + ctx.const_base;
-  if (full >= 512) return;
+  if (full >= 512) { RX_USE(xenos_alu_const_oob_zero); return; }
   std::memcpy(v, &ctx.regs->values[XE_GPU_REG_SHADER_CONSTANT_000_X + 4 * full], 16);
 }
 

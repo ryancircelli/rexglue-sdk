@@ -3,7 +3,7 @@
 # subset, static checks on the same subset, and trace replays. Minutes, not
 # hours. Prints PASS/FAIL per stage and exits nonzero if any stage fails.
 #
-#   tools/gputest/regress.sh CONFIG [--only stress,shaders,static,replay] [--out DIR]
+#   tools/gputest/regress.sh CONFIG [--only stress,shaders,static,replay,<extra>] [--out DIR]
 #
 # CONFIG is a bash file the game supplies (bo2: ~/dev/bo2-mac-port/patches/gputest/
 # regress-bo2.conf). It may set:
@@ -16,18 +16,29 @@
 #   REPLAY       array: command line(s), each exits nonzero on a divergence
 #   OUT          output dir (default /tmp/gputest-regress)
 #   JOBS         parallel jobs (default 4)
+#   EXTRA        array of "name|command" stages owned by other harnesses; each
+#                passes when its command exits 0 (log in OUT/<name>.log)
+# Drop-in files CONFIG.d/*.conf (for bo2: regress-bo2.conf.d/) are sourced after
+# CONFIG, in name order; other harnesses append their stages to EXTRA there so
+# that nobody edits this script or the main config to add one.
 # A stage with nothing configured is reported as SKIP, not PASS.
 set -u
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
-[ $# -ge 1 ] || { sed -n 2,20p "$0"; exit 2; }
+[ $# -ge 1 ] || { sed -n 2,26p "$0"; exit 2; }
 conf="$1"; shift
-only="stress,shaders,static,replay"
+only=""
 # Environment values win over the config when the config uses ${VAR:-default}.
 UCODE="${UCODE:-}"; SHADER_LIST="${SHADER_LIST:-}"; KNOWN="${KNOWN:-}"; MSL_XLATE="${MSL_XLATE:-}"
 MASK_KNOWN="${MASK_KNOWN:-}"; OUT="${OUT:-}"; JOBS="${JOBS:-4}"; STRESS=(); REPLAY=()
 # shellcheck disable=SC1090
 source "$conf"
+if [ -d "$conf.d" ]; then
+  for f in "$conf.d"/*.conf; do
+    # shellcheck disable=SC1090
+    [ -e "$f" ] && source "$f"
+  done
+fi
 while [ $# -gt 0 ]; do
   case "$1" in
     --only) only="$2"; shift 2;;
@@ -35,6 +46,10 @@ while [ $# -gt 0 ]; do
     *) echo "unknown arg $1" >&2; exit 2;;
   esac
 done
+if [ -z "$only" ]; then
+  only="stress,shaders,static,replay"
+  for e in "${EXTRA[@]+"${EXTRA[@]}"}"; do only="$only,${e%%|*}"; done
+fi
 BIN="${BIN:-$root/out/mac-arm64/Release}"
 OUT="${OUT:-/tmp/gputest-regress}"
 mkdir -p "$OUT"
@@ -122,6 +137,14 @@ if want replay; then
     record replay $st $((SECONDS-s)) "$OUT/replay.*.log"
   fi
 fi
+
+for e in "${EXTRA[@]+"${EXTRA[@]}"}"; do
+  name="${e%%|*}"; cmd="${e#*|}"
+  want "$name" || continue
+  s=$SECONDS
+  if bash -c "$cmd" > "$OUT/$name.log" 2>&1; then st=PASS; else st=FAIL; fi
+  record "$name" $st $((SECONDS-s)) "$(tail -1 "$OUT/$name.log" | cut -c1-120)"
+done
 
 echo "gputest regress ($((SECONDS-t0))s, logs in $OUT)"
 for l in "${summary[@]}"; do echo "  $l"; done

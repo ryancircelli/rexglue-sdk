@@ -263,4 +263,54 @@ if(REXGLUE_BUILD_TESTS OR REXGLUE_BUILD_GPUTEST)
         COMMAND rexgpu-metal-texcache-stress)
     set_tests_properties(rexgpu-metal-texcache-stress PROPERTIES
         TIMEOUT 120 LABELS "gpu;metal")
+
+    # Texture decode conformance: the plugin's real texture load path vs the
+    # refxenos CPU reference decoder (src/graphics/refxenos/texture).
+    set(_refxenos_tex_dir ${CMAKE_CURRENT_SOURCE_DIR}/../refxenos/texture)
+    set(_refxenos_tex_sources
+        ${_refxenos_tex_dir}/ref_texture.cc
+        ${_refxenos_tex_dir}/ref_rules.cc
+        ${_refxenos_tex_dir}/ref_sample.cc)
+    set(_refxenos_golden_dir ${CMAKE_CURRENT_SOURCE_DIR}/../refxenos/golden)
+    add_executable(rexgpu-texconf
+        ${REXGPU_METAL_COMMON_SOURCES}
+        ${REXGPU_METAL_SOURCES}
+        metal_flags.cpp
+        tests/texconf.cc
+        ${_refxenos_tex_sources}
+        ${_refxenos_golden_dir}/golden_store.cc
+    )
+    add_dependencies(rexgpu-texconf rexgpu-metal-helpers)
+    target_include_directories(rexgpu-texconf BEFORE PRIVATE ${_rexgpu_metal_incs}
+        ${_refxenos_tex_dir}
+        ${_refxenos_golden_dir}
+        ${CMAKE_CURRENT_SOURCE_DIR}/../refxenos/third_party
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../../thirdparty/inja/third_party/include)
+    target_compile_definitions(rexgpu-texconf PRIVATE
+        ${_rexgpu_metal_defs} REX_METAL_TEST_HOOKS=1)
+    target_compile_options(rexgpu-texconf PRIVATE ${_rexgpu_metal_opts})
+    target_link_libraries(rexgpu-texconf PRIVATE ${_rexgpu_metal_libs})
+    set_target_properties(rexgpu-texconf PROPERTIES
+        BUILD_RPATH "$<TARGET_FILE_DIR:rexruntime>")
+    add_test(NAME rexgpu-texconf COMMAND rexgpu-texconf --synthetic)
+    set_tests_properties(rexgpu-texconf PROPERTIES
+        TIMEOUT 120 LABELS "gpu;metal")
+
+    # CPU-only cross-check of the reference decoder (tiling vs the legacy
+    # Untile formula, BC vs bcdec).
+    add_executable(refxenos-tex-selftest
+        ${_refxenos_tex_dir}/ref_texture_selftest.cc
+        ${_refxenos_tex_sources})
+    target_include_directories(refxenos-tex-selftest PRIVATE
+        ${_refxenos_tex_dir}
+        ${CMAKE_CURRENT_SOURCE_DIR}/../refxenos/third_party)
+    add_test(NAME refxenos-tex-selftest COMMAND refxenos-tex-selftest)
+
+    add_executable(refxenos-golden-selftest
+        ${_refxenos_golden_dir}/golden_store_selftest.cc
+        ${_refxenos_golden_dir}/golden_store.cc)
+    target_include_directories(refxenos-golden-selftest PRIVATE
+        ${_refxenos_golden_dir}
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../../thirdparty/inja/third_party/include)
+    add_test(NAME refxenos-golden-selftest COMMAND refxenos-golden-selftest)
 endif()

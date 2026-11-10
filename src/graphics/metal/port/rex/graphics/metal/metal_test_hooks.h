@@ -40,7 +40,9 @@ inline HookFn g_hook = nullptr;
           (texture).key().base_page);                          \
     }                                                          \
   } while (0)
-#define REX_METAL_TEST_FRIEND friend class TexCacheStressAccess;
+#define REX_METAL_TEST_FRIEND \
+  friend class TexCacheStressAccess;  \
+  friend class TexConfAccess;
 
 #else
 

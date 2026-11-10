@@ -1840,6 +1840,13 @@ Presenter::PaintResult VulkanPresenter::PaintAndPresentImpl(bool execute_ui_draw
                 swapchain_effect, paint_context_.swapchain_render_pass);
             if (swapchain_effect_pipeline.swapchain_pipeline == VK_NULL_HANDLE) {
               guest_output_flow.effect_count = 0;
+            } else {
+              // Remember the format the pipeline was made for. Without this the check above
+              // always saw VK_FORMAT_UNDEFINED, so every paint waited for the previous one and
+              // then destroyed and recreated this pipeline (on Metal a compile of up to 300 ms
+              // whenever the pipeline cache missed).
+              swapchain_effect_pipeline.swapchain_format =
+                  paint_context_.swapchain_render_pass_format;
             }
           }
         }

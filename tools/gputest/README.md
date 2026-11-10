@@ -117,6 +117,12 @@ per core. Classes: `spirv_translate`, `spirv_val`,
    does not change it) and not `fast::` math (`--inject precise_math` does
    not change it); no CPU reference for textured shaders, so which arm is
    right is not settled.
+5. Fixed here (951de84c): `ShaderInterpreter` ignored `abs_constants` on
+   constant operands, so the CPU oracle disagreed with both GPU arms on
+   vs_30c3fbe39a6b58a2.
+
+`SHADERDIFF_METAL_FLAGS` adds flags to every metal compile (for example
+`-ffp-contract=off` to rule out fused multiply-add).
 
 Random inputs are seeded from crc32(shader name, seed), so a run is
 reproducible; `results.jsonl` is written per batch, so a killed run keeps its

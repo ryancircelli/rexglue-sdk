@@ -181,6 +181,20 @@ class TexCacheStressAccess {
 
   uint64_t LoadCount() { return tc().loaded_texture_data_count(); }
 
+#ifdef REX_METAL_3D_AS_2D_REFRESH
+  // The 2D wrapper a draw sampling the 3D texture of `fetch` as 2D gets
+  // (gpu_3d_to_2d_texture), created on first use.
+  Texture* Wrapper3DAs2D(const xenos::xe_gpu_texture_fetch_t& fetch) {
+    auto* t = static_cast<MetalTextureCache::MetalTexture*>(Find(fetch));
+    if (!t || !cp_->EnsureCommandBuffer() ||
+        !t->GetOrCreate3DAs2DView(xenos::XE_GPU_TEXTURE_SWIZZLE_RGBA,
+                                  xenos::FetchOpDimension::k2D, false)) {
+      return nullptr;
+    }
+    return t->texture_3d_as_2d();
+  }
+#endif
+
   // A resolve / memexport style GPU write: valid with GPU-written data.
   void MarkGpuWritten(uint32_t start, uint32_t length) {
     MetalSharedMemory& s = sm();
@@ -279,6 +293,8 @@ struct TexDesc {
   uint32_t mip_max_level;  // 0 = base only
   bool packed_mips;
   const char* name;
+  xenos::DataDimension dimension = xenos::DataDimension::k2DOrStacked;
+  uint32_t depth = 1;  // k3D only
 };
 
 xe_gpu_texture_fetch_t MakeFetch(const TexDesc& d, uint32_t base_phys,
@@ -291,12 +307,18 @@ xe_gpu_texture_fetch_t MakeFetch(const TexDesc& d, uint32_t base_phys,
   f.format = d.format;
   f.endianness = xenos::Endian::kNone;
   f.base_address = base_phys >> 12;
-  f.size_2d.width = d.width - 1;
-  f.size_2d.height = d.height - 1;
+  if (d.dimension == xenos::DataDimension::k3D) {
+    f.size_3d.width = d.width - 1;
+    f.size_3d.height = d.height - 1;
+    f.size_3d.depth = d.depth - 1;
+  } else {
+    f.size_2d.width = d.width - 1;
+    f.size_2d.height = d.height - 1;
+  }
   f.swizzle = 0 | (1 << 3) | (2 << 6) | (3 << 9);
   f.mip_min_level = 0;
   f.mip_max_level = d.mip_max_level;
-  f.dimension = xenos::DataDimension::k2DOrStacked;
+  f.dimension = d.dimension;
   f.packed_mips = d.packed_mips ? 1 : 0;
   f.mip_address = d.mip_max_level ? (mip_phys >> 12) : 0;
   return f;
@@ -659,6 +681,57 @@ void HostWriteScenario(const char* name, const TexDesc& d, bool resident,
   Verify(name, d, base, nullptr);
 }
 
+#ifdef REX_METAL_3D_AS_2D_REFRESH
+// A 3D texture sampled as 2D is served from a 2D wrapper of its first slice
+// that lives outside the texture map. After a CPU write the next draw must
+// see the new data in the wrapper, not only in the 3D texture.
+bool ReadWrapper(const char* name, const xe_gpu_texture_fetch_t& f,
+                 std::vector<std::vector<uint8_t>>& levels) {
+  std::string err;
+  auto* w = g_acc->Wrapper3DAs2D(f);
+  if (!w || !g_acc->Readback(w, levels, err)) {
+    std::printf("HARNESS scenario %s: 3D-as-2D wrapper readback failed: %s\n",
+                name, w ? err.c_str() : "no wrapper");
+    ++g_harness_errors;
+    return false;
+  }
+  return true;
+}
+
+void ThreeDAs2DScenario(const char* name) {
+  const TexDesc d = {xenos::TextureFormat::k_8_8_8_8, 32, 32, true, 0, false,
+                     "rgba8 32x32x4 tiled 3d", xenos::DataDimension::k3D, 4};
+  Region base = Alloc(256 * 1024);
+  xe_gpu_texture_fetch_t f = MakeFetch(d, base.phys, 0);
+  Extents e = GetExtents(f);
+  const uint32_t blen = (e.base + 0xFFF) & ~0xFFFu;
+  Seed(base, 0, Pattern(base.size, 60));
+  std::vector<std::vector<uint8_t>> served, ref;
+  // Draw 1 samples it as 2D: the wrapper is made and loaded.
+  if (!g_acc->Materialize(f) || !ReadWrapper(name, f, served)) return;
+  // CPU write over the whole texture, then draw 2 samples it as 2D again.
+  GuestWrite(base, 0, Pattern(blen, 61));
+  if (!g_acc->Materialize(f) || !ReadWrapper(name, f, served)) return;
+  // Reference: a fresh texture at a twin region with the same bytes.
+  Region tb = Alloc(base.size);
+  std::vector<uint8_t> bytes;
+  ReadGuest(base, 0, base.size, bytes);
+  Seed(tb, 0, bytes);
+  xe_gpu_texture_fetch_t rf = MakeFetch(d, tb.phys, 0);
+  if (!g_acc->Materialize(rf) || !ReadWrapper(name, rf, ref)) return;
+  const uint64_t hs = HashLevels(served), hr = HashLevels(ref);
+  if (hs != hr) {
+    std::printf("FAIL scenario %s: 3D texture at guest 0x%08X sampled as 2D "
+                "served stale bytes from its 2D wrapper (expected hash "
+                "%016" PRIX64 ", got %016" PRIX64 "; base %u B)\n",
+                name, base.phys, hr, hs, e.base);
+    ++g_failures;
+  } else if (g_verbose) {
+    std::printf("  ok %s (hash %016" PRIX64 ")\n", name, hs);
+  }
+}
+#endif
+
 struct ScenarioEntry {
   const char* name;
   std::function<void(const char*)> run;
@@ -748,6 +821,10 @@ int main(int argc, char** argv) {
        [](const char* n) { RaceScenario(n, kDxt1_128, Path::kResident, P::kResidentAfterCopy, true, false); }},
       {"hostwrite_in_resident_window_callbacks_after_load",
        [](const char* n) { RaceScenario(n, kDxt1_128, Path::kResident, P::kResidentAfterCopy, true, true); }},
+#ifdef REX_METAL_3D_AS_2D_REFRESH
+      // 7. A 3D texture sampled as 2D (needs the metal_3d_as_2d_refresh fix).
+      {"3d_as_2d_after_cpu_write", [](const char* n) { ThreeDAs2DScenario(n); }},
+#endif
   };
 
   int ran = 0;

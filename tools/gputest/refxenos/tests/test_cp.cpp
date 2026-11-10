@@ -2,7 +2,7 @@
 // 415608C3_4685 main-menu trace compared draw by draw against rexgpu-replay's
 // draws.jsonl when one is available.
 //
-// Usage: refxenos_test_cp [trace.xtr] [draws.jsonl]
+// Usage: refxenos_test_cp [trace.xtr] [draws.jsonl|-] [start_frame]
 
 #include <algorithm>
 #include <cstdio>
@@ -334,17 +334,23 @@ int main(int argc, char** argv) {
   std::printf("trace %s: title %08X, build '%s', %zu commands\n", trace_path.c_str(),
               trace.title_id(), trace.build_sha().c_str(), trace.commands().size());
 
-  auto oracle = LoadOracle(oracle_path);
+  if (trace.truncated()) std::printf("note: %s\n", trace.error().c_str());
+  uint32_t start_frame = argc > 3 ? U(argv[3]) : 0;
+  std::vector<OracleDraw> oracle;
+  if (oracle_path != "-") oracle = LoadOracle(oracle_path);
   std::printf("oracle %s: %zu draws\n", oracle_path.c_str(), oracle.size());
 
   mem = std::make_unique<Memory>();
   CommandProcessor cp(*mem);
-  std::vector<DrawCall> draws;
+  cp.SetStartFrame(start_frame);
+  size_t delivered = 0;
+  uint32_t first_delivered = UINT32_MAX;
   uint32_t mismatches = 0, total_indices = 0, restarts = 0, ib_bytes_checked = 0;
   bool ok = cp.Run(
       trace,
       [&](const DrawCall& d) {
-        if (d.draw_index < 10) {
+        if (first_delivered == UINT32_MAX) first_delivered = d.draw_index;
+        if (d.draw_index < first_delivered + 10) {
           std::printf("  draw %2u pkt %3u prim %-2u %s indices %u%s%s vs %s ps %s\n", d.draw_index,
                       d.packet_index, uint32_t(d.prim), d.indexed ? "dma " : "auto",
                       d.num_indices, d.is_resolve ? " RESOLVE" : "",
@@ -392,10 +398,12 @@ int main(int argc, char** argv) {
                         maxv, d.restart_before.size());
           }
         }
-        draws.push_back(d);
+        ++delivered;
         return true;
       },
-      [&](uint32_t frame) { std::printf("  swap after frame %u\n", frame); });
+      [&](uint32_t frame) {
+        if (frame < 3 || frame + 1 >= start_frame) std::printf("  swap after frame %u\n", frame);
+      });
   if (!ok) {
     std::printf("FAIL: replay error: %s\n", cp.error().c_str());
     return 1;
@@ -419,6 +427,8 @@ int main(int argc, char** argv) {
       (unsigned long long)s.draws_viz_killed, (unsigned long long)s.draws_viz_conditional,
       (unsigned long long)s.wait_reg_mem_unsatisfied,
       (unsigned long long)s.indirect_buffers_from_memory, (unsigned long long)s.count_overflows);
+  std::printf("frames %u, start frame %u, draws delivered %zu, fast-forwarded %llu\n", cp.frame(),
+              start_frame, delivered, (unsigned long long)s.draws_fast_forwarded);
   std::printf("indices fetched %u, restarts %u\n", total_indices, restarts);
   std::printf("opcodes:");
   for (auto& [op, n] : s.opcodes) std::printf(" %02X:%llu", op, (unsigned long long)n);
@@ -435,9 +445,10 @@ int main(int argc, char** argv) {
   std::printf("\n");
 
   if (!oracle.empty()) {
-    CHECK(oracle.size() == draws.size());
-    std::printf("draw count: refxenos %zu, rexgpu-replay %zu -> %s; per-draw mismatches %u\n",
-                draws.size(), oracle.size(), oracle.size() == draws.size() ? "match" : "DIFFER",
+    CHECK(oracle.size() == size_t(s.draws));
+    std::printf("draw count: refxenos %llu, rexgpu-replay %zu -> %s; per-draw mismatches %u\n",
+                (unsigned long long)s.draws, oracle.size(),
+                oracle.size() == size_t(s.draws) ? "match" : "DIFFER",
                 mismatches);
     CHECK(mismatches == 0);
   } else {

@@ -109,6 +109,7 @@ struct CpStats {
   uint64_t type0 = 0, type1 = 0, type2 = 0, type3 = 0, bad_packets = 0;
   uint64_t predicated_skipped = 0;
   uint64_t draws = 0, resolves = 0, swaps = 0, xe_swaps = 0;
+  uint64_t draws_fast_forwarded = 0;     // before SetStartFrame's frame, not delivered
   uint64_t draws_immediate_dropped = 0;  // SourceSelect kImmediate / invalid
   uint64_t draws_viz_killed = 0;         // PA_SC_VIZ_QUERY ena && kill_pix_post_hi_z
   uint64_t draws_viz_conditional = 0;    // DRAW_INDX token bit 8 (rendered unconditionally)
@@ -135,6 +136,13 @@ class CommandProcessor {
   // index of the frame that just ended. Returns false on a malformed trace.
   bool Run(const TraceReader& trace, const std::function<bool(const DrawCall&)>& on_draw,
            const std::function<void(uint32_t frame)>& on_swap);
+
+  // Fast-forward: draws in frames before `frame` are still executed as state
+  // (registers, constants, shaders, memory, numbering) but on_draw is not
+  // called and their indices are not fetched. Resolves skipped this way do
+  // not write guest memory, so render targets resolved before `frame` and
+  // sampled after it are missing (the trace does not record resolved ranges).
+  void SetStartFrame(uint32_t frame) { start_frame_ = frame; }
 
   const RegisterFile& regs() const { return *regs_; }
   RegisterFile& regs() { return *regs_; }
@@ -172,6 +180,7 @@ class CommandProcessor {
 
   // Replay bookkeeping (frame_replay.cpp numbering).
   uint32_t frame_ = 0;
+  uint32_t start_frame_ = 0;
   uint32_t draw_index_ = 0;
   uint32_t packet_index_ = 0;
   uint32_t current_packet_base_ = 0;

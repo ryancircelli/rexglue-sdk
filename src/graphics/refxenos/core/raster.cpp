@@ -222,12 +222,16 @@ RX_DEFINE_RULE(raster_depth_clamp, 1,
                "xenia-canary@cf206a3b src/xenia/gpu/spirv_shader_translator_rb.cc:2445-2510 (NClamp of "
                "the biased per-sample depth to [0, 1], NaN -> 0)",
                false, "");
-RX_DEFINE_RULE(raster_poly_offset, 1,
-               "xenia-canary@cf206a3b src/xenia/gpu/draw_util.cc:217-246 (front/back regs by face for "
-               "polygons, FRONT regs if poly_offset_para_enable otherwise), xenos.h:445 "
-               "kPolygonOffsetScaleSubpixelUnit = 1/16, spirv_shader_translator_rb.cc:2395-2418 (offset = "
-               "scale/16 * max(|dz/dx|, |dz/dy|) + offset, offset absolute for both depth formats)",
-               false,
+RX_DEFINE_RULE(raster_poly_offset, 2,
+               "xenia-canary@cf206a3b src/xenia/gpu/vulkan/vulkan_command_processor.cc:5573-5610 (FSI "
+               "path: polygons take FRONT regs if poly_offset_front_enable and BACK regs if "
+               "poly_offset_back_enable, chosen per face; non-polygons take FRONT regs only if "
+               "poly_offset_para_enable; scale *= xenos.h:445 kPolygonOffsetScaleSubpixelUnit = 1/16; "
+               "offset is not halved for D24FS8 on this path, unlike the host-RT heuristic at "
+               "draw_util.cc:127-176), spirv_shader_translator_rb.cc:2396-2418 (offset = scale * "
+               "max(|dz/dx|, |dz/dy|) + offset, added before clamping, skipped when the shader writes "
+               "depth); assumed: slope from the exact plane in double",
+               true,
                "slope scale 16, offset 0 / 2^-20 on D24S8 and D24FS8 with a slanted triangle; compare depth");
 RX_DEFINE_RULE(raster_scissor, 1,
                "xenia-canary@cf206a3b src/xenia/gpu/draw_util.cc:731-913 GetScissor (window scissor + "
@@ -279,10 +283,13 @@ RX_DEFINE_RULE(raster_line_quad, 1,
                true,
                "1x RT: lines at 0, 30, 45, 60 degrees with additive blend; record covered pixels and "
                "strip joints");
-RX_DEFINE_RULE(raster_param_gen, 1,
-               "xenia-canary@cf206a3b src/xenia/gpu/dxbc_shader_translator.cc:702-820 (XY = floor(pixel "
-               "position); point: X = |x|, Y = -|y|, ZW = point coord; else XY = |xy|, X negated on back "
-               "faces of polygons, Z = line flag << 31, W = 0)",
+RX_DEFINE_RULE(raster_param_gen, 2,
+               "xenia-canary@cf206a3b src/xenia/gpu/spirv_shader_translator.cc:2755-2885 and "
+               "dxbc_shader_translator.cc:731-820 (XY = floor(pixel position incl. window offset); "
+               "point draws (vulkan_pipeline_cache.cc:533-543, draw primitive kPointList only): X = |x|, "
+               "Y = -|y|, ZW = point coord clamped to [0, 1]; otherwise XY = |xy|, X negated on back faces "
+               "of polygons, Z sign bit set iff the draw primitive is a line type "
+               "(draw_util.h:29-53 IsPrimitiveLine), W = 0)",
                false, "");
 RX_DEFINE_RULE(raster_param_gen_ogl_center, 1,
                "assumed: param_gen XY is the integer pixel index also with pix_center = kOGLHalf "

@@ -52,9 +52,22 @@ struct TraceCommand {
 
 class TraceReader {
  public:
+  TraceReader() = default;
+  ~TraceReader();
+  TraceReader(const TraceReader&) = delete;
+  TraceReader& operator=(const TraceReader&) = delete;
+
+  // Memory-maps the file (read only). A file cut mid-command (capture ended
+  // at game exit) is not an error: parsing stops at the last complete
+  // command and truncated() reports it.
   bool Open(const std::string& path);
   // Parses an in-memory image (used by tests); the reader keeps a copy.
   bool OpenBytes(std::vector<uint8_t> bytes);
+
+  bool truncated() const { return truncated_; }
+  // Byte offset where the incomplete trailing command starts (== file size
+  // when not truncated).
+  size_t truncated_at() const { return truncated_at_; }
 
   const std::string& error() const { return error_; }
   uint32_t version() const { return version_; }
@@ -62,7 +75,7 @@ class TraceReader {
   // build_commit_sha with trailing NULs removed (40 chars at most).
   const std::string& build_sha() const { return build_sha_; }
   const std::vector<TraceCommand>& commands() const { return commands_; }
-  size_t file_size() const { return data_.size(); }
+  size_t file_size() const { return size_; }
 
   // Decodes the payload of a MemoryRead / MemoryWrite / Registers / GammaRamp
   // / EdramSnapshot command into `out`. For memory commands the result is
@@ -72,8 +85,14 @@ class TraceReader {
 
  private:
   bool Parse();
+  void Close();
 
-  std::vector<uint8_t> data_;
+  const uint8_t* data_ = nullptr;
+  size_t size_ = 0;
+  void* map_ = nullptr;  // mmap base when memory-mapped
+  std::vector<uint8_t> owned_;
+  bool truncated_ = false;
+  size_t truncated_at_ = 0;
   std::vector<TraceCommand> commands_;
   std::string error_;
   uint32_t version_ = 0;

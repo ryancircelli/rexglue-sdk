@@ -824,6 +824,17 @@ bool CommandProcessor::ExecuteDraw(Reader& r, uint32_t opcode, uint32_t count) {
     return true;
   }
 
+  RX_USE(cp_draw_resolve_mode);
+  const bool is_resolve =
+      regs_->Get<reg::RB_MODECONTROL>().edram_mode == xenos::EdramMode::kCopy;
+  ++stats_.draws;
+  if (is_resolve) ++stats_.resolves;
+  if (frame_ < start_frame_) {
+    ++draw_index_;
+    ++stats_.draws_fast_forwarded;
+    return true;
+  }
+
   DrawCall d;
   d.frame = frame_;
   d.draw_index = draw_index_++;
@@ -832,8 +843,7 @@ bool CommandProcessor::ExecuteDraw(Reader& r, uint32_t opcode, uint32_t count) {
   d.regs = regs_.get();
   d.vs = active_vs_;
   d.ps = active_ps_;
-  RX_USE(cp_draw_resolve_mode);
-  d.is_resolve = regs_->Get<reg::RB_MODECONTROL>().edram_mode == xenos::EdramMode::kCopy;
+  d.is_resolve = is_resolve;
   d.prim = init.prim_type;
   d.num_indices = init.num_indices;
   d.source_select = init.source_select;
@@ -856,8 +866,6 @@ bool CommandProcessor::ExecuteDraw(Reader& r, uint32_t opcode, uint32_t count) {
   FetchVertexIndices(memory_, IndexFetchParams::FromRegisters(*regs_), d.vertex_indices,
                      d.restart_before);
 
-  ++stats_.draws;
-  if (d.is_resolve) ++stats_.resolves;
   if (on_draw_ && *on_draw_ && !(*on_draw_)(d)) stop_ = true;
   return true;
 }

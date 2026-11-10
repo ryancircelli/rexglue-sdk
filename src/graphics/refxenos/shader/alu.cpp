@@ -72,20 +72,134 @@ RX_DEFINE_RULE(xenos_alu_a0_rounding, 1,
                "Differs from dxbc_shader_translator_alu.cc:916 which clamps "
                "maxas to [0, 255]; the XDK pseudocode is followed",
                false, "");
-RX_DEFINE_RULE(xenos_alu_transcendental_rounding, 1,
-               "assumed: exp/log/logc/rcp/rcpc/rcpf/rsq/rsqc/rsqf/sqrt/sin/cos "
-               "computed exactly (double) and rounded once to f32 (round to "
-               "nearest even), then the XDK special cases "
-               "(microcode_alu_scalar_logc/rcpc/rcpf/rsqc/rsqf.htm), then the "
-               "output denormal flush. xenia-canary 3a44f20c7 instead rounds "
-               "exp/log/rcp/rsq/sqrt to 21 mantissa bits "
-               "(shader_interpreter.cc:285, \"isn't confirmed\"); available as "
+RX_DEFINE_RULE(xenos_alu_rcp, 1,
+               "assumed: rcp = 1/x computed exactly (double) and rounded once "
+               "to f32 (round to nearest even), then the XDK special cases, then "
+               "the output denormal flush. xenia-canary 3a44f20c7 instead rounds to 21 mantissa bits "
+               "(shader_interpreter.cc:285, \"isn't confirmed\"), available as "
                "InterpOptions::transcendental_mantissa_bits = 21",
                true,
-               "PS per op: r0.x = op(c0.x) where c0.x sweeps all 2^32 bit patterns "
-               "(one per pixel of a 65536x65536 tiled set of draws, the input "
-               "taken from a 32_FLOAT texture by pixel index); export to a "
-               "32_32_32_32_FLOAT target, resolve, compare bit patterns");
+               "sweep all 2^32 float32 inputs (or a stratified 2^24 subset incl. "
+               "denormals, +-0, +-inf, NaNs, powers of two) through a ps that does "
+               "`rcp r0.x, c0.x` (input per pixel from a 32_FLOAT texture) and "
+               "exports bits via a 32_32_32_32_FLOAT RT; compare bit-exact");
+RX_DEFINE_RULE(xenos_alu_rcpc, 1,
+               "assumed: rcpc = 1/x, +-inf results clamped to +-FLT_MAX computed exactly (double) and rounded once "
+               "to f32 (round to nearest even), then the XDK special cases, then "
+               "the output denormal flush. xenia-canary 3a44f20c7 instead rounds to 21 mantissa bits "
+               "(shader_interpreter.cc:285, \"isn't confirmed\"), available as "
+               "InterpOptions::transcendental_mantissa_bits = 21",
+               true,
+               "sweep all 2^32 float32 inputs (or a stratified 2^24 subset incl. "
+               "denormals, +-0, +-inf, NaNs, powers of two) through a ps that does "
+               "`rcpc r0.x, c0.x` (input per pixel from a 32_FLOAT texture) and "
+               "exports bits via a 32_32_32_32_FLOAT RT; compare bit-exact");
+RX_DEFINE_RULE(xenos_alu_rcpf, 1,
+               "assumed: rcpf = 1/x, +-inf results flushed to +-0 computed exactly (double) and rounded once "
+               "to f32 (round to nearest even), then the XDK special cases, then "
+               "the output denormal flush. xenia-canary 3a44f20c7 instead rounds to 21 mantissa bits "
+               "(shader_interpreter.cc:285, \"isn't confirmed\"), available as "
+               "InterpOptions::transcendental_mantissa_bits = 21",
+               true,
+               "sweep all 2^32 float32 inputs (or a stratified 2^24 subset incl. "
+               "denormals, +-0, +-inf, NaNs, powers of two) through a ps that does "
+               "`rcpf r0.x, c0.x` (input per pixel from a 32_FLOAT texture) and "
+               "exports bits via a 32_32_32_32_FLOAT RT; compare bit-exact");
+RX_DEFINE_RULE(xenos_alu_rsq, 1,
+               "assumed: rsq = 1/sqrt(x) computed exactly (double) and rounded once "
+               "to f32 (round to nearest even), then the XDK special cases, then "
+               "the output denormal flush. xenia-canary 3a44f20c7 instead rounds to 21 mantissa bits "
+               "(shader_interpreter.cc:285, \"isn't confirmed\"), available as "
+               "InterpOptions::transcendental_mantissa_bits = 21",
+               true,
+               "sweep all 2^32 float32 inputs (or a stratified 2^24 subset incl. "
+               "denormals, +-0, +-inf, NaNs, powers of two) through a ps that does "
+               "`rsq r0.x, c0.x` (input per pixel from a 32_FLOAT texture) and "
+               "exports bits via a 32_32_32_32_FLOAT RT; compare bit-exact");
+RX_DEFINE_RULE(xenos_alu_rsqc, 1,
+               "assumed: rsqc = 1/sqrt(x), +-inf results clamped to +-FLT_MAX computed exactly (double) and rounded once "
+               "to f32 (round to nearest even), then the XDK special cases, then "
+               "the output denormal flush. xenia-canary 3a44f20c7 instead rounds to 21 mantissa bits "
+               "(shader_interpreter.cc:285, \"isn't confirmed\"), available as "
+               "InterpOptions::transcendental_mantissa_bits = 21",
+               true,
+               "sweep all 2^32 float32 inputs (or a stratified 2^24 subset incl. "
+               "denormals, +-0, +-inf, NaNs, powers of two) through a ps that does "
+               "`rsqc r0.x, c0.x` (input per pixel from a 32_FLOAT texture) and "
+               "exports bits via a 32_32_32_32_FLOAT RT; compare bit-exact");
+RX_DEFINE_RULE(xenos_alu_rsqf, 1,
+               "assumed: rsqf = 1/sqrt(x), +-inf results flushed to +-0 computed exactly (double) and rounded once "
+               "to f32 (round to nearest even), then the XDK special cases, then "
+               "the output denormal flush. xenia-canary 3a44f20c7 instead rounds to 21 mantissa bits "
+               "(shader_interpreter.cc:285, \"isn't confirmed\"), available as "
+               "InterpOptions::transcendental_mantissa_bits = 21",
+               true,
+               "sweep all 2^32 float32 inputs (or a stratified 2^24 subset incl. "
+               "denormals, +-0, +-inf, NaNs, powers of two) through a ps that does "
+               "`rsqf r0.x, c0.x` (input per pixel from a 32_FLOAT texture) and "
+               "exports bits via a 32_32_32_32_FLOAT RT; compare bit-exact");
+RX_DEFINE_RULE(xenos_alu_sqrt, 1,
+               "assumed: sqrt = sqrt(x) computed exactly (double) and rounded once "
+               "to f32 (round to nearest even), then the XDK special cases, then "
+               "the output denormal flush. xenia-canary 3a44f20c7 instead rounds to 21 mantissa bits "
+               "(shader_interpreter.cc:285, \"isn't confirmed\"), available as "
+               "InterpOptions::transcendental_mantissa_bits = 21",
+               true,
+               "sweep all 2^32 float32 inputs (or a stratified 2^24 subset incl. "
+               "denormals, +-0, +-inf, NaNs, powers of two) through a ps that does "
+               "`sqrt r0.x, c0.x` (input per pixel from a 32_FLOAT texture) and "
+               "exports bits via a 32_32_32_32_FLOAT RT; compare bit-exact");
+RX_DEFINE_RULE(xenos_alu_log, 1,
+               "assumed: log = log2(x) computed exactly (double) and rounded once "
+               "to f32 (round to nearest even), then the XDK special cases, then "
+               "the output denormal flush. xenia-canary 3a44f20c7 instead rounds to 21 mantissa bits "
+               "(shader_interpreter.cc:285, \"isn't confirmed\"), available as "
+               "InterpOptions::transcendental_mantissa_bits = 21",
+               true,
+               "sweep all 2^32 float32 inputs (or a stratified 2^24 subset incl. "
+               "denormals, +-0, +-inf, NaNs, powers of two) through a ps that does "
+               "`log r0.x, c0.x` (input per pixel from a 32_FLOAT texture) and "
+               "exports bits via a 32_32_32_32_FLOAT RT; compare bit-exact");
+RX_DEFINE_RULE(xenos_alu_logc, 1,
+               "assumed: logc = log2(x), -inf clamped to -FLT_MAX computed exactly (double) and rounded once "
+               "to f32 (round to nearest even), then the XDK special cases, then "
+               "the output denormal flush. xenia-canary 3a44f20c7 instead rounds to 21 mantissa bits "
+               "(shader_interpreter.cc:285, \"isn't confirmed\"), available as "
+               "InterpOptions::transcendental_mantissa_bits = 21",
+               true,
+               "sweep all 2^32 float32 inputs (or a stratified 2^24 subset incl. "
+               "denormals, +-0, +-inf, NaNs, powers of two) through a ps that does "
+               "`logc r0.x, c0.x` (input per pixel from a 32_FLOAT texture) and "
+               "exports bits via a 32_32_32_32_FLOAT RT; compare bit-exact");
+RX_DEFINE_RULE(xenos_alu_exp, 1,
+               "assumed: exp = 2^x computed exactly (double) and rounded once "
+               "to f32 (round to nearest even), then the XDK special cases, then "
+               "the output denormal flush. xenia-canary 3a44f20c7 instead rounds to 21 mantissa bits "
+               "(shader_interpreter.cc:285, \"isn't confirmed\"), available as "
+               "InterpOptions::transcendental_mantissa_bits = 21",
+               true,
+               "sweep all 2^32 float32 inputs (or a stratified 2^24 subset incl. "
+               "denormals, +-0, +-inf, NaNs, powers of two) through a ps that does "
+               "`exp r0.x, c0.x` (input per pixel from a 32_FLOAT texture) and "
+               "exports bits via a 32_32_32_32_FLOAT RT; compare bit-exact");
+RX_DEFINE_RULE(xenos_alu_sin, 1,
+               "assumed: sin = sin(x radians) computed exactly (double) and rounded once "
+               "to f32 (round to nearest even), then the XDK special cases, then "
+               "the output denormal flush. Xenia does not reduce sin/cos precision",
+               true,
+               "sweep all 2^32 float32 inputs (or a stratified 2^24 subset incl. "
+               "denormals, +-0, +-inf, NaNs, powers of two) through a ps that does "
+               "`sin r0.x, c0.x` (input per pixel from a 32_FLOAT texture) and "
+               "exports bits via a 32_32_32_32_FLOAT RT; compare bit-exact");
+RX_DEFINE_RULE(xenos_alu_cos, 1,
+               "assumed: cos = cos(x radians) computed exactly (double) and rounded once "
+               "to f32 (round to nearest even), then the XDK special cases, then "
+               "the output denormal flush. Xenia does not reduce sin/cos precision",
+               true,
+               "sweep all 2^32 float32 inputs (or a stratified 2^24 subset incl. "
+               "denormals, +-0, +-inf, NaNs, powers of two) through a ps that does "
+               "`cos r0.x, c0.x` (input per pixel from a 32_FLOAT texture) and "
+               "exports bits via a 32_32_32_32_FLOAT RT; compare bit-exact");
 RX_DEFINE_RULE(xenos_alu_log_special, 1,
                "assumed: log/logc of +0 = -inf (logc -> -FLT_MAX), of a negative "
                "value = NaN, of +inf = +inf, as IEEE log2 "
@@ -185,7 +299,6 @@ float ReduceMantissa(float f, uint32_t bits) {
 }
 
 float RoundTranscendental(double d, bool reducible) {
-  RX_USE(xenos_alu_transcendental_rounding);
   float f = float(d);
   if (reducible) {
     f = ReduceMantissa(f, GetInterpOptions().transcendental_mantissa_bits);
@@ -460,10 +573,12 @@ void ExecuteScalarOp(ucode::AluScalarOpcode op, float a, float b, float ps,
     case S::kTruncs: RX_USE(xenos_alu_frc_trunc_floor); v = std::trunc(a); break;
     case S::kFloors: RX_USE(xenos_alu_frc_trunc_floor); v = std::floor(a); break;
     case S::kExp:
+      RX_USE(xenos_alu_exp);
       if (std::isnan(a)) { v = a; break; }
       v = RoundTranscendental(std::exp2(double(a)), true);
       break;
     case S::kLogc: {
+      RX_USE(xenos_alu_logc);
       float l = Log2(a);
       if (l == -INFINITY) {
         RX_USE(xenos_alu_clamped_transcendentals);
@@ -471,13 +586,13 @@ void ExecuteScalarOp(ucode::AluScalarOpcode op, float a, float b, float ps,
       }
       v = l;
     } break;
-    case S::kLog: v = Log2(a); break;
-    case S::kRcpc: v = ClampInfToMax(Rcp(a)); break;
-    case S::kRcpf: v = ClampInfToZero(Rcp(a)); break;
-    case S::kRcp: v = Rcp(a); break;
-    case S::kRsqc: v = ClampInfToMax(Rsq(a)); break;
-    case S::kRsqf: v = ClampInfToZero(Rsq(a)); break;
-    case S::kRsq: v = Rsq(a); break;
+    case S::kLog: RX_USE(xenos_alu_log); v = Log2(a); break;
+    case S::kRcpc: RX_USE(xenos_alu_rcpc); v = ClampInfToMax(Rcp(a)); break;
+    case S::kRcpf: RX_USE(xenos_alu_rcpf); v = ClampInfToZero(Rcp(a)); break;
+    case S::kRcp: RX_USE(xenos_alu_rcp); v = Rcp(a); break;
+    case S::kRsqc: RX_USE(xenos_alu_rsqc); v = ClampInfToMax(Rsq(a)); break;
+    case S::kRsqf: RX_USE(xenos_alu_rsqf); v = ClampInfToZero(Rsq(a)); break;
+    case S::kRsq: RX_USE(xenos_alu_rsq); v = Rsq(a); break;
     case S::kMaxAs:
       r->sets_a0 = true;
       r->a0 = RoundA0(a, false);
@@ -511,6 +626,7 @@ void ExecuteScalarOp(ucode::AluScalarOpcode op, float a, float b, float ps,
     case S::kKillsNe: kill(a != 0.0f); break;
     case S::kKillsOne: kill(a == 1.0f); break;
     case S::kSqrt:
+      RX_USE(xenos_alu_sqrt);
       if (std::isnan(a)) { v = a; break; }
       if (a == 0.0f) { v = a; break; }
       if (a < 0.0f) { v = std::numeric_limits<float>::quiet_NaN(); break; }
@@ -523,11 +639,13 @@ void ExecuteScalarOp(ucode::AluScalarOpcode op, float a, float b, float ps,
     case S::kSubsc0:
     case S::kSubsc1: v = a - b; break;
     case S::kSin:
+      RX_USE(xenos_alu_sin);
       RX_USE(xenos_alu_sincos_radians);
       v = std::isfinite(a) ? RoundTranscendental(std::sin(double(a)), false)
                            : std::numeric_limits<float>::quiet_NaN();
       break;
     case S::kCos:
+      RX_USE(xenos_alu_cos);
       RX_USE(xenos_alu_sincos_radians);
       v = std::isfinite(a) ? RoundTranscendental(std::cos(double(a)), false)
                            : std::numeric_limits<float>::quiet_NaN();

@@ -130,6 +130,7 @@ const InterpOptions& GetInterpOptions();
 // component of it was written. Components not written stay 0.
 struct RawExports {
   float reg[64][4];
+  uint8_t taint[64][4];  // transcendental taint per component
   uint64_t written = 0;
   uint8_t comp_written[64];
   bool killed = false;

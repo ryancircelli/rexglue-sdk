@@ -113,6 +113,66 @@ Output directory:
 
 Exit code is non-zero if the trace could not be replayed.
 
+## Texture staleness check (texcheck) and race mode
+
+Goal: catch a texture cache that samples stale or wrong texture data, without
+booting the game.
+
+Multi-frame traces (`REX_GPU_TRACE_FRAMES=300`) already carry guest memory
+writes interleaved with the command stream: at every draw the capture records
+each texture, vertex and index range the draw reads, deduplicated by content
+hash per address, so a range shows up again only when the guest changed it.
+The replay writes each block through `Memory::TriggerPhysicalMemoryCallbacks`
+(the path a guest CPU write takes), changed bytes only, so the shared memory
+page state and the texture watches see the same invalidations as in the game.
+Page resets at swaps (`clear_memory_page_state`) come from replaying the swap
+packets. Trade-off: writes are recorded at the granularity of "before the draw
+that reads them", not at the exact guest store; writes to memory no draw reads
+are not recorded, and a write made and read back between two draws without a
+draw in between is merged.
+
+`rexgpu-replay ... --texcheck` installs a probe in the texture caches (Metal
+resident and CPU-source loads, Vulkan resident loads) that hashes the guest
+bytes each load reads, at the point after the copy and before the cache marks
+the texture up to date. At every draw, for each bound fetch constant, the
+replay compares the hash the texture was last loaded with against the guest
+memory now. A mismatch is reported as
+
+```
+frame F draw N fetch slot S: sampled stale texture at 0x... fmt K WxH base|mips 0xA+len (got hash X = guest data written to 0x... in frame F', loaded at frame F'' draw N'' via resident|cpu; expected hash Y = ...)
+```
+
+in `texcheck.jsonl` and summarized in `summary.json` (`"texcheck"`). Ranges a
+resolve wrote are skipped (the guest copy is not the truth there). The Metal
+plugin queues draws and loads their textures at the queue flush, so with
+`--texcheck` the replay sets `REX_METAL_NO_DRAW_QUEUE=1` (unless the
+environment sets it) to load at each draw.
+
+The live bug class (a guest write landing between the cache's copy and its
+watch arm) is a race; a plain replay applies every write before the draw that
+needs it and so serializes it away. `--race` (implies `--texcheck`) makes it
+deterministic: at every texture load window the probe asks the replayer for
+the next recorded write to that texture's range (up to `--race-frames N`
+frames ahead, default 1) and applies it right there, through the same
+notification path, after the copy and before the watch is armed. A cache that
+arms its watch after the copy marks the texture current with the old bytes
+and is flagged stale on the following draws; a cache that rechecks the range
+(or arms first) reloads and stays clean. The write is then skipped at its
+recorded position.
+
+```
+tools/gputest/replay/texcheck_replay.sh <rexgpu-replay> <trace.xtr> <out> --plugin <librexgpu-metal.dylib> --backend any --race --race-frames 1000
+tools/gputest/replay/texcheck.py <out> [--baseline <out>] [--limit N] [--json]
+```
+
+`texcheck_replay.sh` exits 0 clean, 1 stale texture, 2 replay failure, for a
+`REPLAY=()` stage in `regress.sh`. `texcheck.py` groups repeats ("sampled stale
+by N draws in M frames").
+
+Not covered: a host copy that diverges from guest memory without the cache
+noticing (shared buffer out of sync) still hashes as "current", because the
+oracle is the guest bytes at load time, not the host texture contents.
+
 ## Diff
 
 ```sh
@@ -156,9 +216,11 @@ then commands, each starting with u32 TraceCommandType:
  11 GammaRamp           { type, u8 rw_component, encoding, encoded_length } + 256 + 3*128 dwords
 ```
 
-`base_ptr` values are physical addresses. This writer stores data uncompressed
-(`encoding = 0`); the reader rejects snappy-compressed traces from Xenia for
-now. `build_commit_sha` holds `rexglue-gputest`. Traces should replay in
+`base_ptr` values are physical addresses. Memory blocks of 256 bytes or more
+are stored zlib compressed (level 1) when that is smaller: `encoding = 2`, a
+rexglue extension (Xenia defines 0 = none, 1 = snappy). Set
+`REX_GPU_TRACE_COMPRESS=0` at capture time to write `encoding = 0` only. The
+reader rejects snappy-compressed traces from Xenia for now. `build_commit_sha` holds `rexglue-gputest`. Traces should replay in
 Xenia's trace viewer too (not tested).
 
 ## Testing without a game

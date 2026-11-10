@@ -142,6 +142,21 @@ def compare(a, b, tol, depth_tol):
     return err > tol, np.where(np.isinf(err), 1e9, err)
 
 
+def compare_delta(a, before_a, b, before_b, tol, depth_tol):
+    """Per-pixel error between the changes two backends made in one draw."""
+    if a.ndim == 2:
+        da = depth_to_float(a) - depth_to_float(before_a)
+        db = depth_to_float(b) - depth_to_float(before_b)
+        err = np.abs(da - db)
+        return err > depth_tol, err
+    fa = np.nan_to_num(a.astype(np.float64)) - np.nan_to_num(before_a.astype(np.float64))
+    fb = np.nan_to_num(b.astype(np.float64)) - np.nan_to_num(before_b.astype(np.float64))
+    nan_mismatch = np.any(np.isnan(a) != np.isnan(b), axis=-1)
+    err = np.abs(fa - fb).max(axis=-1)
+    err = np.where(nan_mismatch, 1e9, err)
+    return err > tol, err
+
+
 def changed(before, after):
     if before is None:
         return np.ones(after.shape[:2], bool)
@@ -209,15 +224,17 @@ def run_diff(args):
                 findings.append({"draw": idx, "target": label, "kind": "shape",
                                  "detail": f"{img_a.shape} vs {img_b.shape}", "record": da})
                 continue
-            if args.delta:
+            if args.delta and before_a is not None and before_b is not None \
+                    and before_a.shape == img_a.shape and before_b.shape == img_b.shape:
+                # Compare what the draw changed: (after - before) in A against
+                # (after - before) in B, only where either backend wrote. Error
+                # inherited from earlier draws cancels out (fully for opaque
+                # writes and untouched pixels, scaled by the blend factor when
+                # blending), so later draws are not blamed for it.
                 written = changed(before_a, img_a) | changed(before_b, img_b)
-                if before_a is not None and before_b is not None:
-                    # Pixels this draw left alone in both are not its fault.
-                    mask = mask & written
-                    # A pixel written by one backend only is a divergence even
-                    # if the old contents happen to match.
-                    only = changed(before_a, img_a) ^ changed(before_b, img_b)
-                    mask = mask | (only & (err > 0))
+                mask, err = compare_delta(img_a, before_a, img_b, before_b,
+                                          args.tol, args.depth_tol)
+                mask = mask & written
             count = int(mask.sum())
             if count > args.max_pixels:
                 findings.append({
@@ -227,6 +244,9 @@ def run_diff(args):
                 })
 
     first = findings[0] if findings else None
+    for stale in os.listdir(args.out):
+        if stale.startswith("draw") and stale.endswith(".png"):
+            os.remove(os.path.join(args.out, stale))
     shown = findings if args.delta else findings[:1]
     shown = shown[:args.images]
     for i, f in enumerate(shown):
@@ -242,6 +262,9 @@ def run_diff(args):
         "tolerance": args.tol, "depth_tolerance": args.depth_tol, "max_pixels": args.max_pixels,
         "structural": structural,
         "divergent_draws": divergent_draws,
+        "findings": [{k: f.get(k) for k in ("draw", "target", "kind", "pixels", "max_err", "detail")}
+                     | {"vs": f["record"].get("vs"), "ps": f["record"].get("ps")}
+                     for f in findings],
         "first_divergent_draw": first["draw"] if first else None,
     }
     if first:

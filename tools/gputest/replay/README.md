@@ -125,9 +125,12 @@ count, max error, VS and PS hashes, primitive, counts and every state register
 that differs between the two records), writes `report.md`, `report.html`,
 `result.json` and side-by-side images `drawNNNNNN_<target>.png` (A, B, diff
 heat map). Tolerances: `--tol` (color, default 1.5/255 per channel),
-`--depth-tol` (default 16 in 24-bit units), `--max-pixels`. `--delta` compares
-only the pixels each draw wrote and lists every independent divergence, so a
-draw that differs only because an earlier draw did is not reported again.
+`--depth-tol` (default 16 in 24-bit units), `--max-pixels`. `--delta` compares what each draw changed (after minus before, per backend)
+on the pixels either backend wrote, and lists every independent divergence,
+so a draw that differs only because an earlier draw did is not reported again
+(inherited error cancels exactly for opaque writes and is scaled down by the
+blend factor when blending). `result.json` lists every finding with its pixel
+count, max error and shader hashes.
 `--a-frame/--b-frame` compare one frame of each replay (for traces of
 different lengths). Exit code 1 when something diverges.
 
@@ -188,6 +191,13 @@ VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json rexgpu-replay capture.xtr -
 
 Diff its output against the Mac replays (copy the replay directory over; the
 format has no host dependency).
+
+Measured noise floor: a bo2 main menu frame (70 draws) replayed on MoltenVK
+(Apple GPU) and on lavapipe differs by at most 2/255 on 62k pixels in absolute
+mode, and in delta mode with `--tol 0.0118` (3/255) by 4 to 5/255 on 2 to 71
+pixels in six textured UI draws (filtering and blend rounding). Use
+`--tol 0.02` or `--max-pixels 100` between unrelated GPUs; a real shader or
+state bug shows up as large errors on many pixels.
 
 ## Using it per renderer
 

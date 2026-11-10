@@ -49,6 +49,10 @@ class InputSystem : public system::IInputSystem {
   /// Replaces any previous assignment. Call before the guest starts polling.
   void SetDeviceAssignment(std::unique_ptr<DeviceAssignment> assignment);
 
+  /// True once after a controller connected or disconnected (or moved to another player), so the
+  /// caller can tell the guest (XN_SYS_INPUTDEVICESCHANGED) outside the input lock.
+  bool TakeDevicesChanged() { return devices_changed_.exchange(false, std::memory_order_acq_rel); }
+
   X_RESULT GetCapabilities(uint32_t user_index, uint32_t flags, X_INPUT_CAPABILITIES* out_caps);
   X_RESULT GetState(uint32_t user_index, X_INPUT_STATE* out_state);
   /// GetState for the emulator's own UI, which reads while the guest is blocked.
@@ -93,6 +97,7 @@ class InputSystem : public system::IInputSystem {
   const SlotTable& slot_table() const { return slot_table_; }
 
  private:
+  std::atomic<bool> devices_changed_{false};
   using JoystickValue = std::pair<uint16_t, uint16_t>;
   /// Re-enumerates every driver and notifies the assignment when the set
   /// changed.

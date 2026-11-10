@@ -51,6 +51,7 @@
 // clang-format on
 #include "rex/ui/metal/metal_api.h"
 #include "rex/ui/metal/metal_provider.h"
+#include "rex/graphics/metal/metal_test_hooks.h"
 
 namespace MTL {
 class BlitCommandEncoder;
@@ -69,6 +70,8 @@ namespace metal {
 class MetalGraphicsSystem;
 
 class MetalCommandProcessor final : public CommandProcessor {
+  REX_METAL_TEST_FRIEND
+
  protected:
 
  public:

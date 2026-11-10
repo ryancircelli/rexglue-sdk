@@ -14,7 +14,7 @@
 //   // render: vertex + fragment (may be the same source), triangle list.
 //   "vertex_source": "...", "vertex_function": "...",
 //   "fragment_source": "...", "fragment_function": "...",
-//   "vertex_count": N, "width": W, "height": H,
+//   "vertex_count": N, "width": W, "height": H, "dump": ["buf", ...] (also render),
 //   "colors": BITMASK (RGBA32Float targets), "depth": bool,
 //   // writes each enabled color target (W*H*16 bytes) then depth (W*H*4).
 //   "buffers": [{"name": "n", "file": "f.bin" | "size": BYTES,
@@ -350,7 +350,8 @@ bool RunJob(NSDictionary* job, std::string& err) {
     BindAll(job, r, enc, @"vertex");
     BindAll(job, r, enc, @"fragment");
     for (auto res : r.all) {
-      [enc useResource:res usage:MTLResourceUsageRead stages:MTLRenderStageVertex | MTLRenderStageFragment];
+      [enc useResource:res usage:MTLResourceUsageRead | MTLResourceUsageWrite
+                    stages:MTLRenderStageVertex | MTLRenderStageFragment];
     }
     [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:[job[@"vertex_count"] unsignedIntegerValue]];
     [enc endEncoding];
@@ -372,6 +373,10 @@ bool RunJob(NSDictionary* job, std::string& err) {
       [out appendBytes:px.data() length:px.size() * 4];
     }
     if (dread) [out appendBytes:dread.contents length:dread.length];
+    for (NSString* name in job[@"dump"]) {
+      id<MTLBuffer> b = r.buffers[name.UTF8String];
+      [out appendBytes:b.contents length:b.length];
+    }
   }
   if (![out writeToFile:job[@"out"] atomically:NO]) { err = "cannot write out"; return false; }
   return true;

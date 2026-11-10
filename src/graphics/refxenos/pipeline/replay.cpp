@@ -160,7 +160,7 @@ void Usage() {
       "[--draws FIRST:COUNT] [--ps HEX] [--list] [--dump-shaders] [--rop shader|edram] [--full] "
       "[--probe X,Y] [--probe-out FILE]\n"
       "--rop shader is a diagnostic overwrite stub (no depth/blend/alpha test); "
-      "edram executes the ROP. Filters skip prior drawing; initial EDRAM is zero.\n");
+      "edram executes the ROP. In edram mode, draw filters execute preceding draws as history.\n");
 }
 }  // namespace
 
@@ -250,20 +250,27 @@ int RunReplay(int argc, char** argv) {
         trace,
         [&](const DrawCall& d) {
           if (frame_filter && d.frame > frame)
-            return false;
+            return true;
           if (frames && d.frame >= frames)
-            return false;
+            return true;
           if (count && uint64_t(d.draw_index) >= uint64_t(first) + count)
-            return false;
-          if (count && d.draw_index < first)
             return true;
-          if (ps_hash && (!d.ps || d.ps->hash != ps_hash))
+          const bool in_draw_range = !count || d.draw_index >= first;
+          const bool matches_ps = !ps_hash || (d.ps && d.ps->hash == ps_hash);
+          const bool emit = in_draw_range && matches_ps;
+          // In EDRAM mode, execute unselected earlier draws and resolves so the
+          // requested draw sees the same accumulated render-target state.
+          // Shader-stub mode remains an isolated diagnostic for compatibility.
+          if (!emit && shader_rop)
             return true;
-          ++selected;
+          if (list && !emit)
+            return true;
+          if (emit)
+            ++selected;
           DrawStats stats;
           auto info = Record(d);
           const auto& regs = *d.regs;
-          if (dump_shaders) {
+          if (dump_shaders && emit) {
             std::filesystem::create_directories(dir / "shaders");
             for (const auto& blob : {d.vs, d.ps}) {
               if (!blob || !dumped.insert(blob->hash).second)
@@ -283,7 +290,7 @@ int RunReplay(int argc, char** argv) {
                   XXH64(blob->ucode.data(), blob->ucode.size() * 4, 0));
             }
           }
-          if (list) {
+          if (list && emit) {
             writer.BeginDraw(info, regs);
             writer.EndDraw(RuleUsage::Current().used(), stats);
             RuleUsage::Current().Clear();
@@ -293,11 +300,13 @@ int RunReplay(int argc, char** argv) {
                         d.is_resolve ? " resolve" : "");
             return true;
           }
-          if (frame_filter || count || ps_hash)
+          if (emit && shader_rop && (frame_filter || count || ps_hash))
             stats.notes.push_back(
                 "isolated selected draws: prior EDRAM and resolves not executed; not a whole-frame "
                 "golden");
-          if (shader_rop)
+          if (emit && !shader_rop && (frame_filter || count || ps_hash))
+            stats.notes.push_back("preceding draws and resolves replayed to seed EDRAM history");
+          if (emit && shader_rop)
             stats.notes.push_back(
                 "diagnostic shader ROP stub: overwrite surviving PS exports, any covered sample; "
                 "no depth/stencil, blend, alpha test or format conversion");
@@ -387,8 +396,9 @@ int RunReplay(int argc, char** argv) {
           }
           info.succeeded = draw_ok;
           all_ok &= draw_ok;
-          writer.BeginDraw(info, regs);
-          if (w && h && !d.is_resolve) {
+          if (emit)
+            writer.BeginDraw(info, regs);
+          if (emit && w && h && !d.is_resolve) {
             std::vector<uint32_t> bits(color.size());
             std::memcpy(bits.data(), color.data(), bits.size() * 4);
             auto key =
@@ -400,13 +410,16 @@ int RunReplay(int argc, char** argv) {
                                    coverage.size() * 4);
             SavePng(dir / (base + "_rt0.png"), w, h, color);
           }
-          writer.EndDraw(RuleUsage::Current().used(), stats);
+          if (emit)
+            writer.EndDraw(RuleUsage::Current().used(), stats);
           RuleUsage::Current().Clear();
-          std::printf("frame %u draw %u: %llu vertices, %llu quads, %llu writes, %zu notes%s\n",
-                      d.frame, d.draw_index, (unsigned long long)stats.vertices_shaded,
-                      (unsigned long long)stats.quads, (unsigned long long)stats.samples_written,
-                      stats.notes.size(), draw_ok ? "" : " FAILED");
-          std::fflush(stdout);
+          if (emit) {
+            std::printf("frame %u draw %u: %llu vertices, %llu quads, %llu writes, %zu notes%s\n",
+                        d.frame, d.draw_index, (unsigned long long)stats.vertices_shaded,
+                        (unsigned long long)stats.quads, (unsigned long long)stats.samples_written,
+                        stats.notes.size(), draw_ok ? "" : " FAILED");
+            std::fflush(stdout);
+          }
           return true;
         },
         [](uint32_t) {});

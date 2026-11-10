@@ -35,11 +35,16 @@
 #include <rex/system/xmutant.h>
 #include <rex/system/xthread.h>
 #include <rex/thread.h>
+#include <rex/thread_audio.h>
 #include <rex/vec128.h>
 
 REXCVAR_DEFINE_BOOL(ignore_thread_priorities, true, "Kernel",
                     "Ignores game-specified thread priorities");
 
+REXCVAR_DEFINE_STRING(audio_guest_threads, "", "Kernel",
+                      "Guest threads that are scheduled as audio threads (audio_thread_policy) along with the Audio "
+                      "Worker and the XMA Decoder: comma-separated prefixes of the names the game gives them. For a "
+                      "game that mixes its sound on a guest thread the audio callback waits for");
 REXCVAR_DEFINE_BOOL(ignore_thread_affinities, true, "Kernel",
                     "Ignores game-specified thread affinities");
 
@@ -172,6 +177,38 @@ void XThread::set_last_error(uint32_t error_code) {
   guest_object<X_KTHREAD>()->last_error = error_code;
 }
 
+namespace {
+// A guest thread whose name starts with one of the prefixes in audio_guest_threads.
+bool GuestAudioThread(std::string_view name) {
+  const std::string prefixes = REXCVAR_GET(audio_guest_threads);
+  size_t i = 0;
+  while (i < prefixes.size()) {
+    size_t end = prefixes.find(',', i);
+    if (end == std::string::npos) {
+      end = prefixes.size();
+    }
+    std::string_view prefix(prefixes.data() + i, end - i);
+    i = end + 1;
+    while (!prefix.empty() && prefix.front() == ' ') {
+      prefix.remove_prefix(1);
+    }
+    while (!prefix.empty() && prefix.back() == ' ') {
+      prefix.remove_suffix(1);
+    }
+    if (!prefix.empty() && name.starts_with(prefix)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Host threads that produce sound. set_name() stores the name with the handle appended ("Audio Worker (F8000014)"),
+// so the prefix is compared.
+bool HostAudioThread(std::string_view name) {
+  return name.starts_with("Audio Worker") || name.starts_with("XMA Decoder");
+}
+}  // namespace
+
 void XThread::set_name(const std::string_view name) {
   std::lock_guard<std::mutex> lock(thread_lock_);
   thread_name_ = fmt::format("{} ({:08X})", name, handle());
@@ -180,6 +217,11 @@ void XThread::set_name(const std::string_view name) {
     // May be getting set before the thread is created.
     // One the thread is ready it will handle it.
     thread_->set_name(thread_name_);
+    // Games name their threads after creating them (SetThreadName); a guest thread on the audio list is moved to the
+    // audio scheduling class here, one named before it starts in Create().
+    if (guest_thread_ && GuestAudioThread(thread_name_)) {
+      REXSYS_INFO("{}: {} (audio_guest_threads)", thread_name_, rex::thread::SetThreadAudioPriority(thread_.get()));
+    }
   }
 }
 
@@ -434,6 +476,9 @@ X_STATUS XThread::Create() {
   params.create_suspended = true;
   thread_ = rex::thread::Thread::Create(params, [this]() {
     rex::initialize_seh_thread();
+    if (guest_thread_ ? GuestAudioThread(thread_name_) : HostAudioThread(thread_name_)) {
+      REXSYS_INFO("{}: {}", thread_name_, rex::thread::SetThreadAudioPriority());
+    }
     runtime::ThreadState::Bind(thread_state_.get());
 
     // Set thread ID override. This is used by logging.
@@ -470,7 +515,8 @@ X_STATUS XThread::Create() {
     set_name(fmt::format("XThread{:04X}", thread_->system_id()));
   }
 
-  if (creation_params_.creation_flags & 0x60) {
+  // Not for an audio thread: pthread_setschedparam would take it out of the audio class Create() put it in.
+  if ((creation_params_.creation_flags & 0x60) && !(guest_thread_ && GuestAudioThread(thread_name_))) {
     thread_->set_priority(creation_params_.creation_flags & 0x20 ? 1 : 0);
   }
 

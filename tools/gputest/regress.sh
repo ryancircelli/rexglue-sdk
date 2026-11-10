@@ -17,7 +17,9 @@
 #   OUT          output dir (default /tmp/gputest-regress)
 #   JOBS         parallel jobs (default 4)
 #   EXTRA        array of "name|command" stages owned by other harnesses; each
-#                passes when its command exits 0 (log in OUT/<name>.log)
+#                passes when its command exits 0, is SKIP on exit 77 (missing
+#                inputs, not a failure), FAIL otherwise (log in OUT/<name>.log);
+#                the command sees OUT and REGRESS_OUT=$OUT in its environment
 # Drop-in files CONFIG.d/*.conf (for bo2: regress-bo2.conf.d/) are sourced after
 # CONFIG, in name order; other harnesses append their stages to EXTRA there so
 # that nobody edits this script or the main config to add one.
@@ -142,7 +144,8 @@ for e in "${EXTRA[@]+"${EXTRA[@]}"}"; do
   name="${e%%|*}"; cmd="${e#*|}"
   want "$name" || continue
   s=$SECONDS
-  if bash -c "$cmd" > "$OUT/$name.log" 2>&1; then st=PASS; else st=FAIL; fi
+  REGRESS_OUT="$OUT" bash -c "$cmd" > "$OUT/$name.log" 2>&1
+  case $? in 0) st=PASS;; 77) st=SKIP;; *) st=FAIL;; esac
   record "$name" $st $((SECONDS-s)) "$(tail -1 "$OUT/$name.log" | cut -c1-120)"
 done
 

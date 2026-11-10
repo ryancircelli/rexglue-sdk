@@ -23,6 +23,7 @@
 
 #include <rex/graphics/register_file.h>
 #include <rex/graphics/registers.h>
+#include <rex/graphics/trace/trace_hooks.h>
 #include <rex/graphics/xenos.h>
 #include <rex/memory.h>
 #include <rex/memory/ring_buffer.h>
@@ -35,6 +36,9 @@ class ByteStream;
 }  // namespace rex::stream
 
 namespace rex::graphics {
+namespace trace {
+class TraceAccess;
+}  // namespace trace
 
 class GraphicsSystem;
 class Shader;
@@ -90,6 +94,10 @@ class CommandProcessor {
   Shader* active_vertex_shader() const { return active_vertex_shader_; }
   Shader* active_pixel_shader() const { return active_pixel_shader_; }
 
+  // GPU frame trace capture / replay (see rex/graphics/trace/). Not owned.
+  trace::TraceHooks* trace_hooks() const { return trace_hooks_; }
+  void set_trace_hooks(trace::TraceHooks* hooks) { trace_hooks_ = hooks; }
+
   virtual bool Initialize();
   virtual void Shutdown();
 
@@ -139,6 +147,7 @@ class CommandProcessor {
   };
 
   void WorkerThreadMain();
+  bool ExecutePacketUntraced(memory::RingBuffer* reader);
   virtual bool SetupContext() = 0;
   virtual void ShutdownContext() = 0;
 
@@ -266,6 +275,9 @@ class CommandProcessor {
   Shader* active_vertex_shader_ = nullptr;
   Shader* active_pixel_shader_ = nullptr;
 
+  trace::TraceHooks* trace_hooks_ = nullptr;
+  std::unique_ptr<trace::TraceHooks> owned_trace_hooks_;
+
   bool paused_ = false;
 
   // By default (such as for tools), post-processing is disabled.
@@ -278,6 +290,8 @@ class CommandProcessor {
   const char* legacy_readback_memexport_cvar_name_ = nullptr;
 
  private:
+  friend class trace::TraceAccess;
+
   reg::DC_LUT_30_COLOR gamma_ramp_256_entry_table_[256] = {};
   reg::DC_LUT_PWL_DATA gamma_ramp_pwl_rgb_[128][3] = {};
   uint32_t gamma_ramp_rw_component_ = 0;

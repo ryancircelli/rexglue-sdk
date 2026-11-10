@@ -284,6 +284,12 @@ class MetalSharedMemory : public SharedMemory {
   // command buffer still uses one. Reads do not count here.
   void MarkGpuWrite(uint32_t start, uint32_t length, uint64_t submission_index,
                     bool staged_copy = false);
+  // [tex-content-check] The latest submission that wrote any page of a range
+  // on the GPU (resolve, memexport), 0 if none.
+  uint64_t LastGpuWriteSubmission(uint32_t start, uint32_t length);
+  // [tex-content-check] steady-clock microseconds of the latest memexport
+  // readback into any page of a range, 0 if none.
+  uint64_t LastReadbackUs(uint32_t start, uint32_t length);
   // Trace-only diagnosis: pre-commit staged copies by submission (bit 32 of
   // RangeOpenWriteReasons; never used for routing).
   void MarkPrecommitCopy(uint32_t start, uint32_t length,
@@ -385,6 +391,7 @@ class MetalSharedMemory : public SharedMemory {
   std::unique_ptr<MetalUploadBufferPool> upload_buffer_pool_;
   std::vector<uint64_t> page_last_main_gpu_access_submission_;
   std::vector<uint64_t> page_last_gpu_write_submission_;
+  std::vector<uint64_t> page_last_readback_us_;
   std::vector<uint64_t> page_last_staged_copy_submission_;
   std::vector<uint64_t> page_last_precommit_copy_submission_;
   std::mutex standalone_gpu_access_mutex_;

@@ -145,6 +145,11 @@ struct VertexOut {
   bool point_written = false;
   uint32_t interp_written_mask = 0;
   uint32_t vertex_index = 0;  // index value fetched (for probe/diagnostics)
+  // Transcendental taint per component (shader/interp.h): number of
+  // transcendental ops on the value's dataflow path, capped at 255.
+  uint8_t position_taint[4] = {};
+  uint8_t interp_taint[kMaxInterpolators][4] = {};
+  uint8_t point_size_edge_kill_taint[4] = {};
 };
 
 // A 2x2 pixel quad produced by the rasterizer for one primitive.
@@ -178,6 +183,9 @@ struct PixelOut {
   float depth = 0.0f;
   bool depth_written = false;
   bool killed = false;
+  // Transcendental taint per component (shader/interp.h).
+  uint8_t color_taint[4][4] = {};
+  uint8_t depth_taint = 0;
 };
 
 // Per-unit statistics written to draws.jsonl.

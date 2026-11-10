@@ -149,6 +149,8 @@ constexpr std::pair<const char*, const char*> kAliases[] = {
     {"audio_maxqframes", "apu.max_queued_frames"},
     {"audio_mute", "apu.mute"},
     {"ffmpeg_verbose", "runtime.ffmpeg_verbose"},
+    {"audio_thread_policy", "runtime.audio_thread_policy"},
+    {"audio_guest_threads", "runtime.audio_guest_threads"},
     {"clock_no_scaling", "clock.no_scaling"},
     {"log_level", "log.level"},
     {"log_file", "log.file_name"},

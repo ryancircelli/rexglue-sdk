@@ -10,6 +10,8 @@
 
 #pragma once
 
+#include <string>
+
 #include <rex/platform.h>
 #include <rex/setting.h>
 #include <rex/types.h>
@@ -30,6 +32,12 @@ class REX_KERNEL_API RuntimeSettings final : public SettingOwner {
   REX_SETTING(bool, ignore_thread_priorities, true, "Ignore guest thread priorities");
   REX_SETTING(bool, ignore_thread_affinities, true, "Ignore guest thread affinities");
   REX_SETTING(bool, ffmpeg_verbose, false, "Log FFmpeg messages for XMA decoding");
+  REX_SETTING(std::string, audio_thread_policy, "realtime",
+              "Scheduling of the threads that produce sound (Audio Worker, XMA Decoder and the "
+              "guest threads in audio_guest_threads): realtime, fifo or off");
+  REX_SETTING(std::string, audio_guest_threads, "",
+              "Comma-separated prefixes of guest thread names scheduled as audio threads, for a "
+              "game that mixes its sound on a guest thread the audio callback waits for");
   REX_SETTING(u32, terminate_timeout_ms, 2000, "Time Unload waits for guest threads to exit",
               Range{0, 60000});
 

@@ -17,10 +17,12 @@
 #include <rex/kernel/object/object.h>
 #include <rex/kernel/object/kernel_thread.h>
 #include <rex/platform/sync.h>
+#include <rex/platform/thread_audio.h>
 
 #include "kernel/thread_wait.h"
 #include "kernel/xma/decoder.h"
 #include "kernel/title_state.h"
+#include "kernel/settings_access.h"
 
 namespace rex::kernel {
 
@@ -69,6 +71,9 @@ Result<void> APU::Setup() {
 }
 
 void APU::WorkerMain() {
+  REXAPU_INFO("Audio Worker: {}",
+              rex::platform::SetThreadAudioPriority(
+                  nullptr, GetRuntimeSettings().audio_thread_policy.Get()));
   while (worker_running_) {
     auto result = platform::WaitAny(wait_handles_.data(), wait_handles_.size(), true,
                                     std::chrono::milliseconds(500));

@@ -15,6 +15,7 @@
 #include "kernel/xma/decoder.h"
 #include <rex/platform/perf.h>
 #include <rex/logging/log_category.h>
+#include <rex/platform/thread_audio.h>
 #include <rex/apu/audio_driver.h>
 #include <rex/math.h>
 #include <rex/ppc/mmio.h>
@@ -100,6 +101,8 @@ X_STATUS XMADecoder::Setup() {
 }
 
 void XMADecoder::WorkerThreadMain(const std::stop_token& stop) {
+  REXAPU_INFO("XMA Decoder: {}", rex::platform::SetThreadAudioPriority(
+                                     nullptr, GetRuntimeSettings().audio_thread_policy.Get()));
   while (!stop.stop_requested()) {
     bool did_work = false;
     for (u32 n = 0; n < kContextCount && !stop.stop_requested(); n++) {

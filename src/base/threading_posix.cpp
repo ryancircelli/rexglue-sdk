@@ -12,11 +12,18 @@
 #include <rex/platform.h>
 #include <rex/platform/exception_handler.h>
 #include <rex/platform/thread.h>
+#include <rex/platform/thread_audio.h>
 #include <rex/platform/sync.h>
 
 static_assert(REX_PLATFORM_LINUX || REX_PLATFORM_MAC, "This file is POSIX-only");
 
 #include <signal.h>
+
+#if REX_PLATFORM_MAC
+#include <mach/mach.h>
+#include <mach/mach_time.h>
+#include <mach/thread_policy.h>
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -2126,6 +2133,41 @@ void SetCurrentThreadName(const std::string_view name) {
 
 void SetCurrentThreadPriority(i32 priority) {
   ApplyThreadPriority(pthread_self(), priority);
+}
+
+std::string SetThreadAudioPriority(Thread* thread, std::string_view policy) {
+  const pthread_t target =
+      thread ? reinterpret_cast<pthread_t>(thread->GetNativeHandle()) : pthread_self();
+#if REX_PLATFORM_MAC
+  if (policy == "realtime") {
+    // One 256-sample block at 48 kHz is 5.33 ms: the thread asks for that period, may compute for
+    // up to 2 ms of it and must finish within the period. A thread that keeps overrunning its
+    // computation is demoted by the kernel to the default policy, so a spinning thread cannot take
+    // a core for good.
+    mach_timebase_info_data_t timebase{};
+    mach_timebase_info(&timebase);
+    const double abs_per_ms = 1e6 * double(timebase.denom) / double(timebase.numer);
+    thread_time_constraint_policy_data_t constraint{};
+    constraint.period = uint32_t(5.333 * abs_per_ms);
+    constraint.computation = uint32_t(2.0 * abs_per_ms);
+    constraint.constraint = uint32_t(5.333 * abs_per_ms);
+    constraint.preemptible = 1;
+    const kern_return_t result = thread_policy_set(
+        pthread_mach_thread_np(target), THREAD_TIME_CONSTRAINT_POLICY,
+        reinterpret_cast<thread_policy_t>(&constraint), THREAD_TIME_CONSTRAINT_POLICY_COUNT);
+    return result == KERN_SUCCESS
+               ? std::string("real-time (time constraint 5.33 ms, 2 ms computation)")
+               : "real-time REFUSED (" + std::to_string(result) + ")";
+  }
+#endif
+  if (policy == "fifo" || (!REX_PLATFORM_MAC && policy == "realtime")) {
+    sched_param param{};
+    param.sched_priority = 47;
+    const int result = pthread_setschedparam(target, SCHED_FIFO, &param);
+    return result == 0 ? std::string("fixed priority 47 (SCHED_FIFO)")
+                       : "SCHED_FIFO 47 REFUSED (" + std::to_string(result) + ")";
+  }
+  return "unchanged (audio_thread_policy = " + std::string(policy) + ")";
 }
 
 static void SignalHandler(int signal, siginfo_t* /*info*/, void* context) {

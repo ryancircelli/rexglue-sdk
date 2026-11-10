@@ -35,6 +35,7 @@
 #include <rex/kernel/xboxkrnl.h>
 #include <rex/kernel/object/kernel_thread.h>
 #include <rex/platform/thread.h>
+#include <rex/platform/thread_audio.h>
 #include <rex/platform/sync.h>
 #include <rex/ppc/vec128.h>
 #include <rex/utility.h>
@@ -49,6 +50,30 @@
 namespace rex::kernel {
 
 namespace {
+
+// A thread whose name starts with one of the prefixes in audio_guest_threads.
+bool IsListedAudioThread(std::string_view name) {
+  const std::string prefixes = GetRuntimeSettings().audio_guest_threads.Get();
+  size_t i = 0;
+  while (i < prefixes.size()) {
+    size_t end = prefixes.find(',', i);
+    if (end == std::string::npos) {
+      end = prefixes.size();
+    }
+    std::string_view prefix(prefixes.data() + i, end - i);
+    i = end + 1;
+    while (!prefix.empty() && prefix.front() == ' ') {
+      prefix.remove_prefix(1);
+    }
+    while (!prefix.empty() && prefix.back() == ' ') {
+      prefix.remove_suffix(1);
+    }
+    if (!prefix.empty() && name.starts_with(prefix)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 thread_local std::unique_ptr<rex::platform::Thread> t_exiting_thread;
 
@@ -235,6 +260,13 @@ void KernelThread::SetName(const std::string_view name) {
 
   if (thread_) {
     thread_->SetName(thread_name_);
+    // Games name their threads after creating them; a thread on the audio list moves to the audio
+    // scheduling class here.
+    if (IsListedAudioThread(thread_name_)) {
+      REXSYS_INFO("{}: {} (audio_guest_threads)", thread_name_,
+                  rex::platform::SetThreadAudioPriority(
+                      thread_.get(), GetRuntimeSettings().audio_thread_policy.Get()));
+    }
   }
 }
 

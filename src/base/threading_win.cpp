@@ -10,6 +10,7 @@
 
 #include <rex/platform.h>
 #include <rex/platform/thread.h>
+#include <rex/platform/thread_audio.h>
 #include <rex/platform/sync.h>
 #include <rex/platform/timer.h>
 
@@ -94,6 +95,10 @@ void SetCurrentThreadName(const std::string_view name) {
 
 void SetCurrentThreadPriority(i32 priority) {
   SetThreadPriority(GetCurrentThread(), priority);
+}
+
+std::string SetThreadAudioPriority(Thread*, std::string_view) {
+  return "unchanged (no audio scheduling class on this platform)";
 }
 
 void MaybeYield() {

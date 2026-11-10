@@ -23,6 +23,7 @@
 #include "rex/graphics/metal/metal_upload_buffer_pool.h"
 #include "rex/graphics/shared_memory.h"
 #include "rex/ui/metal/metal_api.h"
+#include "rex/graphics/metal/metal_test_hooks.h"
 
 namespace rex {
 namespace graphics {
@@ -242,6 +243,8 @@ struct UploadTraceCounters {
 UploadTraceCounters& UploadTrace();
 
 class MetalSharedMemory : public SharedMemory {
+  REX_METAL_TEST_FRIEND
+
  public:
   MetalSharedMemory(MetalCommandProcessor& command_processor, rex::memory::Memory& memory);
   ~MetalSharedMemory() override;

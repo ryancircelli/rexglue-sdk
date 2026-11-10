@@ -25,16 +25,17 @@ RX_DEFINE_RULE(resolve_tiled_destination, 1,
                "src/xenia/gpu/shaders/resolve.xesli:176-207; "
                "src/xenia/gpu/draw_util.cc:1460-1563 (destination base and macro-phase adjustment)",
                false, "");
-RX_DEFINE_RULE(resolve_endian_128, 1,
+RX_DEFINE_RULE(resolve_endian_128, 2,
                "include/rex/graphics/registers.h:869-884; "
-               "xenia-canary@cf206a3b src/xenia/gpu/shaders/resolve.xesli:91,145 "
-               "(byte swaps within the destination element)",
+               "xenia-canary@cf206a3b src/xenia/gpu/shaders/endian.xesli:24-74; "
+               "src/xenia/gpu/shaders/resolve_full_8bpp.xesli:52-58 "
+               "(destination-width-specific byte swaps)",
                false, "");
 RX_DEFINE_RULE(resolve_color_unpack, 1,
                "xenia-canary@cf206a3b src/xenia/gpu/shaders/resolve.xesli:285-365,379-551; "
                "src/xenia/gpu/shaders/pixel_formats.xesli:354-441",
                false, "");
-RX_DEFINE_RULE(resolve_color_pack, 1,
+RX_DEFINE_RULE(resolve_color_pack, 2,
                "xenia-canary@cf206a3b src/xenia/gpu/shaders/pixel_formats.xesli:102-213,264-352",
                false, "");
 RX_DEFINE_RULE(resolve_exp_bias, 1,
@@ -56,7 +57,7 @@ RX_DEFINE_RULE(resolve_clear, 1,
                "xenia-canary@cf206a3b src/xenia/gpu/draw_util.h:806-843; "
                "src/xenia/gpu/draw_util.cc:1607-1679",
                false, "");
-RX_DEFINE_RULE(resolve_raw_copy, 1,
+RX_DEFINE_RULE(resolve_raw_copy, 2,
                "xenia-canary@cf206a3b src/xenia/gpu/draw_util.cc:1697-1755; "
                "src/xenia/gpu/shaders/resolve.xesli:1019-1063 (raw copy and packed R/B swap)",
                false, "");
@@ -123,6 +124,21 @@ bool GetDestInfo(xenos::ColorFormat input, DestInfo& info) {
   info.bytes_log2 = info.bytes == 1 ? 0 : (info.bytes == 2 ? 1 : (info.bytes == 4 ? 2 :
                     (info.bytes == 8 ? 3 : 4)));
   return true;
+}
+
+bool ColorResolveNumberFormatMatches(xenos::ColorFormat format,
+                                     xenos::SurfaceNumberFormat number) {
+  switch (format) {
+    case xenos::ColorFormat::k_16_FLOAT:
+    case xenos::ColorFormat::k_16_16_FLOAT:
+    case xenos::ColorFormat::k_16_16_16_16_FLOAT:
+    case xenos::ColorFormat::k_32_FLOAT:
+    case xenos::ColorFormat::k_32_32_FLOAT:
+    case xenos::ColorFormat::k_32_32_32_32_FLOAT:
+      return number == xenos::SurfaceNumberFormat::kFloat;
+    default:
+      return number == xenos::SurfaceNumberFormat::kUnsignedRepeatingFraction;
+  }
 }
 
 uint32_t SampleCount(xenos::MsaaSamples msaa) {
@@ -324,9 +340,9 @@ std::array<uint8_t, 16> PackDestination(const DestInfo& info, const float color[
       break;
     }
     case xenos::ColorFormat::k_6_5_5: {
-      uint16_t value = uint16_t(PackFixed(color[0], 6, number) |
-                                (PackFixed(color[1], 5, number) << 6) |
-                                (PackFixed(color[2], 5, number) << 11));
+      uint16_t value = uint16_t(PackFixed(color[0], 5, number) |
+                                (PackFixed(color[1], 5, number) << 5) |
+                                (PackFixed(color[2], 6, number) << 11));
       Put16(bytes, 0, value);
       break;
     }
@@ -381,25 +397,36 @@ std::array<uint8_t, 16> PackDestination(const DestInfo& info, const float color[
 
 void ApplyEndian(std::array<uint8_t, 16>& bytes, uint32_t size, xenos::Endian128 endian) {
   RX_USE(resolve_endian_128);
-  auto reverse = [&](uint32_t start, uint32_t count) {
-    std::reverse(bytes.begin() + start, bytes.begin() + start + count);
-  };
+  auto reverse = [&](uint32_t count) { std::reverse(bytes.begin(), bytes.begin() + count); };
   switch (endian) {
-    case xenos::Endian128::kNone: break;
     case xenos::Endian128::k8in16:
-      for (uint32_t i = 0; i < size; i += 2) reverse(i, 2);
+      if (size >= 2) {
+        for (uint32_t i = 0; i < size; i += 2) std::swap(bytes[i], bytes[i + 1]);
+      }
       break;
     case xenos::Endian128::k8in32:
-      for (uint32_t i = 0; i < size; i += 4) reverse(i, 4);
+      if (size >= 4) {
+        for (uint32_t i = 0; i < size; i += 4) {
+          std::reverse(bytes.begin() + i, bytes.begin() + i + 4);
+        }
+      }
       break;
     case xenos::Endian128::k16in32:
-      for (uint32_t i = 0; i < size; i += 4) std::swap(bytes[i], bytes[i + 2]),
+      if (size >= 4) {
+        for (uint32_t i = 0; i < size; i += 4) {
+          std::swap(bytes[i], bytes[i + 2]);
           std::swap(bytes[i + 1], bytes[i + 3]);
+        }
+      }
       break;
     case xenos::Endian128::k8in64:
-      for (uint32_t i = 0; i < size; i += 8) reverse(i, 8);
+      if (size >= 8) reverse(8);
       break;
-    case xenos::Endian128::k8in128: reverse(0, size); break;
+    case xenos::Endian128::k8in128:
+      if (size >= 16) reverse(16);
+      break;
+    case xenos::Endian128::kNone:
+      break;
   }
 }
 
@@ -572,10 +599,12 @@ bool Resolve(const RegisterFile& regs, Edram& edram, Memory& memory,
   dest_base += TiledAddress(dest_addr_x0 & ~x_mask, dest_addr_y0 & ~y_mask, 0,
                             dest_info.copy_dest_array, local.dest_pitch,
                             local.dest_height, dest.bytes);
-  bool raw_copy = !is_depth && control.copy_command == xenos::CopyCommand::kRaw &&
+  bool raw_copy = !is_depth && !local.exp_bias &&
                   color_format != xenos::ColorRenderTargetFormat::k_8_8_8_8_GAMMA &&
                   xenos::IsSingleCopySampleSelected(
-                      xenos::CopySampleSelect(local.sample_select));
+                      xenos::CopySampleSelect(local.sample_select)) &&
+                  xenos::IsColorResolveFormatBitwiseEquivalent(color_format, dest.format) &&
+                  ColorResolveNumberFormatMatches(dest.format, dest_info.copy_dest_number);
   if (raw_copy && dest.bytes != (source.is_64bpp ? 8u : 4u)) {
     Note(stats, "resolve: raw copy element size differs from the source");
     return false;

@@ -68,7 +68,6 @@ static RegisterFile Base(Memory& memory, xenos::MsaaSamples msaa = xenos::MsaaSa
 
 static EdramSurface Source(const RegisterFile& rf) {
   auto si = rf.Get<reg::RB_SURFACE_INFO>();
-  auto ci = rf.Get<reg::RB_COLOR_INFO>();
   EdramSurface s;
   s.pitch_tiles = EdramPitchTiles(si.surface_pitch, si.msaa_samples, false);
   s.msaa = si.msaa_samples;
@@ -174,7 +173,7 @@ static void TestGammaExpAndDepth() {
   auto linear = ReadbackColorF32(edram, rf, 0, 1, 1);
   CHECK(linear[0] > 0.25f && linear[0] < 0.26f);
   CHECK(linear[1] > 0.062f && linear[1] < 0.063f);
-  CHECK(linear[2] > 0.505f && linear[2] < 0.507f);
+  CHECK(linear[2] > 0.504f && linear[2] < 0.505f);
 
   rf = Base(memory);
   auto dest = rf.Get<reg::RB_COPY_DEST_INFO>();
@@ -216,11 +215,162 @@ static void TestGammaExpAndDepth() {
   EQ(record.sample_select, uint32_t(xenos::CopySampleSelect::k0));
 }
 
+static void FillColor(Edram& edram, const EdramSurface& surface, uint32_t sample,
+                      uint64_t value) {
+  for (uint32_t y = 0; y < 8; ++y) {
+    for (uint32_t x = 0; x < 8; ++x) edram.WriteSample(surface, x, y, sample, value);
+  }
+}
+
+static void TestFormatConversionAndEndian() {
+  Memory memory;
+  RegisterFile rf = Base(memory);
+  Edram edram;
+  EdramSurface source = Source(rf);
+  FillColor(edram, source, 0, 0xFFC04080u);
+  auto dest = rf.Get<reg::RB_COPY_DEST_INFO>();
+  dest.copy_dest_format = xenos::ColorFormat::k_6_5_5;
+  dest.copy_dest_endian = xenos::Endian128::kNone;
+  Set(rf, dest);
+  ResolveRecord record;
+  DrawStats stats;
+  CHECK(Resolve(rf, edram, memory, &record, stats));
+  const uint8_t* p = memory.At(0x100000);
+  EQ(p[0], 0x10u);
+  EQ(p[1], 0x79u);
+
+  const uint8_t expected32[6][4] = {
+      {0x44, 0x33, 0x22, 0x11}, {0x33, 0x44, 0x11, 0x22},
+      {0x11, 0x22, 0x33, 0x44}, {0x22, 0x11, 0x44, 0x33},
+      {0x44, 0x33, 0x22, 0x11}, {0x44, 0x33, 0x22, 0x11}};
+  for (uint32_t endian = 0; endian < 6; ++endian) {
+    rf = Base(memory);
+    dest = rf.Get<reg::RB_COPY_DEST_INFO>();
+    dest.copy_dest_endian = xenos::Endian128(endian);
+    Set(rf, dest);
+    FillColor(edram, source, 0, 0x11223344u);
+    CHECK(Resolve(rf, edram, memory, &record, stats));
+    p = memory.At(0x100000);
+    for (uint32_t i = 0; i < 4; ++i) EQ(p[i], expected32[endian][i]);
+  }
+
+  rf = Base(memory);
+  dest = rf.Get<reg::RB_COPY_DEST_INFO>();
+  dest.copy_dest_format = xenos::ColorFormat::k_8;
+  dest.copy_dest_endian = xenos::Endian128::k8in32;
+  Set(rf, dest);
+  FillColor(edram, source, 0, 0x00000080u);
+  CHECK(Resolve(rf, edram, memory, &record, stats));
+  EQ(memory.At(0x100000)[0], 0x80u);
+
+  rf = Base(memory);
+  auto color = rf.Get<reg::RB_COLOR_INFO>();
+  color.color_format = xenos::ColorRenderTargetFormat::k_16_16_16_16_FLOAT;
+  Set(rf, color);
+  source = Source(rf);
+  source.is_64bpp = true;
+  source.pitch_tiles = EdramPitchTiles(32, xenos::MsaaSamples::k1X, true);
+  const uint64_t extended = 0x7FFF7C007BFF3C00ull;
+  FillColor(edram, source, 0, extended);
+  dest = rf.Get<reg::RB_COPY_DEST_INFO>();
+  dest.copy_dest_format = xenos::ColorFormat::k_16_16_16_16_FLOAT;
+  dest.copy_dest_number = xenos::SurfaceNumberFormat::kFloat;
+  dest.copy_dest_endian = xenos::Endian128::kNone;
+  Set(rf, dest);
+  CHECK(Resolve(rf, edram, memory, &record, stats));
+  const uint8_t expected64[8] = {0x00, 0x3C, 0xFF, 0x7B, 0x00, 0x7C, 0xFF, 0x7F};
+  p = memory.At(0x100000);
+  for (uint32_t i = 0; i < 8; ++i) EQ(p[i], expected64[i]);
+  dest.copy_dest_endian = xenos::Endian128::k8in64;
+  Set(rf, dest);
+  CHECK(Resolve(rf, edram, memory, &record, stats));
+  p = memory.At(0x100000);
+  for (uint32_t i = 0; i < 8; ++i) EQ(p[i], expected64[7 - i]);
+
+  rf = Base(memory);
+  color = rf.Get<reg::RB_COLOR_INFO>();
+  color.color_format = xenos::ColorRenderTargetFormat::k_32_32_FLOAT;
+  Set(rf, color);
+  source = Source(rf);
+  source.is_64bpp = true;
+  source.pitch_tiles = EdramPitchTiles(32, xenos::MsaaSamples::k1X, true);
+  FillColor(edram, source, 0,
+            uint64_t(AsU32(2.0f)) << 32 | uint64_t(AsU32(1.0f)));
+  dest = rf.Get<reg::RB_COPY_DEST_INFO>();
+  dest.copy_dest_format = xenos::ColorFormat::k_32_32_32_32_FLOAT;
+  dest.copy_dest_number = xenos::SurfaceNumberFormat::kFloat;
+  dest.copy_dest_endian = xenos::Endian128::k8in128;
+  Set(rf, dest);
+  CHECK(Resolve(rf, edram, memory, &record, stats));
+  const uint32_t words[4] = {AsU32(1.0f), AsU32(2.0f), 0, 0};
+  p = memory.At(0x100000);
+  for (uint32_t i = 0; i < 16; ++i) {
+    uint32_t source_index = 15 - i;
+    EQ(p[i], uint8_t(words[source_index / 4] >> (8 * (source_index & 3))));
+  }
+}
+
+static void TestSampleSelectAndCombinedClear() {
+  Memory memory;
+  RegisterFile rf = Base(memory, xenos::MsaaSamples::k4X);
+  auto dest = rf.Get<reg::RB_COPY_DEST_INFO>();
+  dest.copy_dest_format = xenos::ColorFormat::k_32_32_32_32_FLOAT;
+  dest.copy_dest_number = xenos::SurfaceNumberFormat::kFloat;
+  dest.copy_dest_endian = xenos::Endian128::kNone;
+  Set(rf, dest);
+  Edram edram;
+  EdramSurface source = Source(rf);
+  for (uint32_t s = 0; s < 4; ++s) FillColor(edram, source, s, s * 64u);
+  const float expected[] = {
+      0.0f, 64.0f * (1.0f / 255.0f), 128.0f * (1.0f / 255.0f),
+      192.0f * (1.0f / 255.0f),
+      (0.0f + 64.0f * (1.0f / 255.0f)) * 0.5f,
+      (128.0f * (1.0f / 255.0f) + 192.0f * (1.0f / 255.0f)) * 0.5f,
+      ((0.0f + 64.0f * (1.0f / 255.0f)) + 128.0f * (1.0f / 255.0f) +
+       192.0f * (1.0f / 255.0f)) * 0.25f};
+  ResolveRecord record;
+  DrawStats stats;
+  for (uint32_t select = 0; select < 7; ++select) {
+    auto control = rf.Get<reg::RB_COPY_CONTROL>();
+    control.copy_sample_select = xenos::CopySampleSelect(select);
+    Set(rf, control);
+    CHECK(Resolve(rf, edram, memory, &record, stats));
+    float value;
+    std::memcpy(&value, memory.At(0x100000), 4);
+    EQ(AsU32(value), AsU32(expected[select]));
+    EQ(record.sample_select, select);
+  }
+  auto control = rf.Get<reg::RB_COPY_CONTROL>();
+  control.copy_sample_select = xenos::CopySampleSelect(7);
+  Set(rf, control);
+  CHECK(Resolve(rf, edram, memory, &record, stats));
+  EQ(record.sample_select, uint32_t(xenos::CopySampleSelect::k0123));
+
+  control.color_clear_enable = 1;
+  control.depth_clear_enable = 1;
+  Set(rf, control);
+  rf[XE_GPU_REG_RB_COLOR_CLEAR] = 0x11223344;
+  rf[XE_GPU_REG_RB_DEPTH_CLEAR] = 0xE000005A;
+  EdramSurface depth;
+  depth.is_depth = true;
+  depth.msaa = xenos::MsaaSamples::k4X;
+  depth.pitch_tiles = EdramPitchTiles(32, depth.msaa, false);
+  CHECK(Resolve(rf, edram, memory, &record, stats));
+  CHECK(record.cleared_color);
+  CHECK(record.cleared_depth);
+  for (uint32_t s = 0; s < 4; ++s) {
+    EQ(edram.ReadSample(source, 7, 7, s), 0x11223344u);
+    EQ(edram.ReadSample(depth, 7, 7, s), 0xE000005Au);
+  }
+}
+
 int main() {
   Test8888Resolve();
   TestAverageAndClear();
   TestFloatReadbackResolve();
   TestGammaExpAndDepth();
+  TestFormatConversionAndEndian();
+  TestSampleSelectAndCombinedClear();
   std::printf("resolve: %d checks, %d failures\n", checks, failures);
   return failures != 0;
 }

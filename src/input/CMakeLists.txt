@@ -4,6 +4,10 @@
 add_library(rexinput OBJECT
     input_system.cpp
     device_assignment.cpp
+    slot_table.cpp
+    script/script_input_driver.cpp
+    steam_detect.cpp
+    state_log.cpp
     state_merge.cpp
     mnk/mnk_input_driver.cpp
     nop/nop_input_driver.cpp

@@ -20,6 +20,9 @@ struct RuleInfo {
   RuleStatus status;
   const char* summary;
   const char* source;
+  // Real-Xbox test that settles the rule (required for kAssumed rules):
+  // what to upload, how to fetch it, and what to read back.
+  const char* hw_test = nullptr;
 };
 
 const RuleInfo* GetRules(size_t* count);

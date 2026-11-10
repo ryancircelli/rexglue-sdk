@@ -15,14 +15,18 @@
 // Exit code: 0 all scenarios clean, 1 stale serve found, 2 harness error.
 
 #include <algorithm>
+#include <chrono>
 #include <cinttypes>
+#include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "rex/cvar.h"
@@ -188,6 +192,53 @@ class TexCacheStressAccess {
   }
   // clear_memory_page_state at the end of a frame.
   void EndOfFramePageReset() { sm().SetSystemPageBlocksValidWithGpuDataWritten(); }
+
+  // A memexport draw (the draw's memexport range request, then IssueDraw's
+  // memexport_ranges loop): the export lands in
+  // the shared buffer and is copied back to guest RAM once this submission
+  // completes. The caller flushes first so no earlier load of the open command
+  // buffer sees the bytes written here.
+  bool Memexport(uint32_t start, const std::vector<uint8_t>& bytes) {
+    if (!cp_->EnsureCommandBuffer()) return false;
+    MetalSharedMemory& s = sm();
+    const uint32_t len = uint32_t(bytes.size());
+    // The draw requests its memexport ranges first, like any other source.
+    if (!cp_->RequestSharedMemoryRange(
+            MetalCommandProcessor::SharedMemoryRequestReason::kMemexportStream,
+            start, len)) {
+      return false;
+    }
+    if (MetalSharedMemory::MemexportPreserveEnabled()) {
+      s.NoteMemexportWrite(start, len);
+    }
+    if (MetalSharedMemory::MemexportReadbackEnabled()) {
+      s.NoteMemexportReadback(start, len, cp_->submission_current_);
+    }
+    std::memcpy(static_cast<uint8_t*>(s.GetBuffer()->contents()) + start,
+                bytes.data(), len);
+    s.RangeWrittenByGpu(start, len);
+    s.MarkGpuWrite(start & (SharedMemory::kBufferSize - 1), len,
+                   cp_->submission_current_);
+    return true;
+  }
+
+  // A 1x resolve into guest memory: the resolved bytes land in the shared
+  // buffer, then the render target cache marks the range (rtt: the
+  // [effects-native] MarkRangeAsResolvedUnscaledRtt route, else the base
+  // MarkRangeAsResolved). The caller flushes first, as for Memexport.
+  bool Resolve(uint32_t start, const std::vector<uint8_t>& bytes, bool rtt) {
+    if (!cp_->EnsureCommandBuffer()) return false;
+    const uint32_t len = uint32_t(bytes.size());
+    std::memcpy(static_cast<uint8_t*>(sm().GetBuffer()->contents()) + start,
+                bytes.data(), len);
+    if (rtt) {
+      tc().MarkRangeAsResolvedUnscaledRtt(start, len);
+    } else {
+      tc().MarkRangeAsResolved(start, len);
+    }
+    sm().MarkGpuWrite(start, len, cp_->submission_current_);
+    return true;
+  }
 
  private:
   MetalCommandProcessor* cp_;
@@ -409,7 +460,14 @@ bool Verify(const char* scenario, const TexDesc& d, const Region& base,
   if (hs != hr) {
     std::string bad;
     for (size_t l = 0; l < std::min(served.size(), ref.size()); ++l) {
-      if (served[l] != ref[l]) bad += (bad.empty() ? "" : ",") + std::to_string(l);
+      if (served[l] == ref[l]) continue;
+      size_t first = 0, last = 0, n = std::min(served[l].size(), ref[l].size());
+      while (first < n && served[l][first] == ref[l][first]) ++first;
+      for (size_t i = first; i < n; ++i) {
+        if (served[l][i] != ref[l][i]) last = i;
+      }
+      bad += (bad.empty() ? "" : ",") + std::to_string(l) + " (host bytes " +
+             std::to_string(first) + ".." + std::to_string(last) + ")";
     }
     std::printf(
         "FAIL scenario %s: texture at guest 0x%08X (mips 0x%08X) fmt %s %ux%u "
@@ -659,6 +717,161 @@ void HostWriteScenario(const char* name, const TexDesc& d, bool resident,
   Verify(name, d, base, nullptr);
 }
 
+// clear_memory_page_state racing a CPU write. The texture's pages hold GPU
+// (resolve) data; a game thread's write faults while the GPU thread is between
+// the copy of the GPU-written valid bits and the buffer exchange in
+// SetSystemPageBlocksValidWithGpuDataWritten. If the invalidation lands in the
+// retiring buffer, the page stays valid with the old shared memory bytes: the
+// fired watch makes the texture reload them (stale), and with next_frame the
+// following swap drops the page without a watch, so it stays stale.
+void PageSwapRaceScenario(const char* name, const TexDesc& d, bool next_frame) {
+  Region base = Alloc(256 * 1024);
+  Region gpu = Alloc(64 * 1024);
+  xe_gpu_texture_fetch_t f = MakeFetch(d, base.phys, 0);
+  Extents e = GetExtents(f);
+  const uint32_t blen = (e.base + 0xFFF) & ~0xFFFu;
+  Seed(base, 0, Pattern(base.size, 70));
+  g_acc->MakeResident(base.phys, blen);
+  g_acc->MarkGpuWritten(base.phys, blen);
+  g_acc->EndOfFramePageReset();
+  g_acc->Materialize(f);
+  g_acc->Flush();
+  // This frame's GPU write lands in the same valid-bit block (the page after
+  // the texture), so the swap copies the texture's pages too.
+  g_acc->MarkGpuWritten(base.phys + blen, 0x1000);
+
+  std::mutex m;
+  std::condition_variable cv;
+  bool done = false;
+  std::thread writer;
+  Injection inj{hooks::Point::kPageSwapBeforeExchange, 0};
+  inj.action = [&] {
+    writer = std::thread([&] {
+      GuestWrite(base, 0, Pattern(blen, 71));
+      std::lock_guard<std::mutex> l(m);
+      done = true;
+      cv.notify_all();
+    });
+    // Unlocked swap: the write completes here. Locked swap: it waits for the
+    // swap, so give up after a while and let the swap finish.
+    std::unique_lock<std::mutex> l(m);
+    cv.wait_for(l, std::chrono::milliseconds(250), [&] { return done; });
+  };
+  g_injection = &inj;
+  g_acc->EndOfFramePageReset();
+  g_injection = nullptr;
+  if (writer.joinable()) writer.join();
+  if (!inj.fired) {
+    std::printf("HARNESS scenario %s: page swap hook did not fire\n", name);
+    ++g_harness_errors;
+    return;
+  }
+  if (next_frame) {
+    g_acc->Materialize(f);
+    g_acc->Flush();
+    g_acc->MarkGpuWritten(gpu.phys, 0x1000);
+    g_acc->EndOfFramePageReset();
+  }
+  Verify(name, d, base, nullptr);
+}
+
+// Memexport into a range a texture was loaded from. The export is copied back
+// to guest RAM by ApplyCompletedMemexportReadbacks after its submission
+// completes, through the unwatched host view.
+//   kAfterCompletion: draw only after the readback.
+//   kCpuWritesThenDraw: the CPU then writes every page of the texture outside
+//     the export bytes (pages invalid, export hash unchanged) and a draw loads
+//     the texture before the readback (CPU source path: guest RAM still holds
+//     the pre-export bytes); verified at that draw.
+//   kCpuWritesThenDrawThenLater: same, verified at a later draw (the readback
+//     is applied when completions are processed, at that later draw; nothing
+//     tells the texture, so it keeps the pre-export bytes).
+//   kCpuOverwritesExport: the CPU also overwrites the export bytes (the CPU
+//     wins, the readback is skipped).
+enum class Mx { kAfterCompletion, kCpuWritesThenDraw, kCpuWritesThenDrawThenLater, kCpuOverwritesExport };
+void MemexportScenario(const char* name, const TexDesc& d, bool resident, Mx mode) {
+  Region base = Alloc(256 * 1024);
+  xe_gpu_texture_fetch_t f = MakeFetch(d, base.phys, 0);
+  Extents e = GetExtents(f);
+  const uint32_t blen = (e.base + 0xFFF) & ~0xFFFu;
+  Seed(base, 0, Pattern(base.size, 80));
+  if (resident) g_acc->MakeResident(base.phys, blen);
+  g_acc->Materialize(f);
+  g_acc->Flush();
+  const uint32_t xoff = 0x100, xlen = 0x200;
+  if (!g_acc->Memexport(base.phys + xoff, Pattern(xlen, 81))) {
+    std::printf("HARNESS scenario %s: memexport failed\n", name);
+    ++g_harness_errors;
+    return;
+  }
+  if (mode != Mx::kAfterCompletion) {
+    for (uint32_t off = 0; off < blen; off += 0x1000) {
+      const uint32_t o = off ? off : xoff + xlen;
+      GuestWrite(base, o, Pattern(0x100, 82 + off));
+    }
+    if (mode == Mx::kCpuOverwritesExport) {
+      GuestWrite(base, xoff, Pattern(xlen, 90));
+    }
+  }
+  auto dbg = [&](const char* step) {
+    if (!g_verbose) return;
+    std::vector<uint8_t> g;
+    ReadGuest(base, xoff, xlen, g);
+    const uint8_t* b = static_cast<const uint8_t*>(
+        g_acc->sm().GetBuffer()->contents()) + base.phys + xoff;
+    // No texture readback here: it would flush and apply the export early.
+    std::printf("  [%s] %s: guest export bytes %016" PRIX64
+                ", buffer export bytes %016" PRIX64 ", loads %" PRIu64 "\n",
+                name, step, XXH3_64bits(g.data(), xlen), XXH3_64bits(b, xlen),
+                g_acc->LoadCount());
+  };
+  dbg("after cpu writes");
+  if (mode == Mx::kAfterCompletion) {
+    g_acc->Flush();
+  } else if (mode == Mx::kCpuWritesThenDrawThenLater) {
+    g_acc->Materialize(f);
+    dbg("after draw");
+    g_acc->Flush();
+    dbg("after flush");
+  }
+  Verify(name, d, base, nullptr);
+}
+
+// A 1x resolve (render target copy) overlapping a loaded texture's memory,
+// then the texture is sampled. The resolved bytes are mirrored into guest RAM
+// so the guest stays the oracle (the reference load sees the same bytes).
+//   after 0: draw next. 1: an end-of-frame page reset first.
+//   2: draw, then a CPU write into a resolved page, a page reset, then draw.
+void ResolveAliasScenario(const char* name, const TexDesc& d, bool resident,
+                          uint32_t roff, uint32_t rlen, bool rtt, int after) {
+  Region base = Alloc(256 * 1024);
+  Region gpu = Alloc(64 * 1024);
+  xe_gpu_texture_fetch_t f = MakeFetch(d, base.phys, 0);
+  Extents e = GetExtents(f);
+  const uint32_t blen = (e.base + 0xFFF) & ~0xFFFu;
+  Seed(base, 0, Pattern(base.size, 100));
+  if (resident) g_acc->MakeResident(base.phys, blen);
+  g_acc->Materialize(f);
+  g_acc->Flush();
+  if (!rlen) rlen = blen - roff;
+  const std::vector<uint8_t> r = Pattern(rlen, 101);
+  HostWrite(base, roff, r);
+  if (!g_acc->Resolve(base.phys + roff, r, rtt)) {
+    std::printf("HARNESS scenario %s: resolve failed\n", name);
+    ++g_harness_errors;
+    return;
+  }
+  if (after >= 1) g_acc->EndOfFramePageReset();
+  if (after == 2) {
+    g_acc->Materialize(f);
+    g_acc->Flush();
+    GuestWrite(base, roff + 0x40, Pattern(0x80, 102));
+    g_acc->MarkGpuWritten(gpu.phys, 0x1000);
+    g_acc->EndOfFramePageReset();
+  }
+  Verify(name, d, base, nullptr);
+}
+
 struct ScenarioEntry {
   const char* name;
   std::function<void(const char*)> run;
@@ -748,6 +961,24 @@ int main(int argc, char** argv) {
        [](const char* n) { RaceScenario(n, kDxt1_128, Path::kResident, P::kResidentAfterCopy, true, false); }},
       {"hostwrite_in_resident_window_callbacks_after_load",
        [](const char* n) { RaceScenario(n, kDxt1_128, Path::kResident, P::kResidentAfterCopy, true, true); }},
+      // 7. clear_memory_page_state swap racing a CPU write (REX_METAL_PAGE_SWAP_LOCK).
+      {"pageswap_write_mid_swap", [](const char* n) { PageSwapRaceScenario(n, kDxt1_128, false); }},
+      {"pageswap_write_mid_swap_next_frame", [](const char* n) { PageSwapRaceScenario(n, kDxt1_128, true); }},
+      {"pageswap_write_mid_swap_rgba", [](const char* n) { PageSwapRaceScenario(n, kRgba64, false); }},
+      // 8. Memexport readback into a texture's range.
+      {"memexport_into_loaded_resident", [](const char* n) { MemexportScenario(n, kDxt1_128, true, Mx::kAfterCompletion); }},
+      {"memexport_into_loaded_cpu", [](const char* n) { MemexportScenario(n, kDxt1_128, false, Mx::kAfterCompletion); }},
+      {"memexport_cpu_writes_then_draw", [](const char* n) { MemexportScenario(n, kDxt1_128, true, Mx::kCpuWritesThenDraw); }},
+      {"memexport_cpu_writes_then_draw_later", [](const char* n) { MemexportScenario(n, kDxt1_128, true, Mx::kCpuWritesThenDrawThenLater); }},
+      {"memexport_cpu_writes_then_draw_cpu_loaded", [](const char* n) { MemexportScenario(n, kRgba64, false, Mx::kCpuWritesThenDrawThenLater); }},
+      {"memexport_cpu_overwrites_export", [](const char* n) { MemexportScenario(n, kDxt1_128, true, Mx::kCpuOverwritesExport); }},
+      // 9. Resolve (render target copy) overlapping a loaded texture.
+      {"resolve_alias_full_rtt", [](const char* n) { ResolveAliasScenario(n, kRgba64, true, 0, 0, true, 0); }},
+      {"resolve_alias_full_base", [](const char* n) { ResolveAliasScenario(n, kRgba64, true, 0, 0, false, 0); }},
+      {"resolve_alias_full_cpu_loaded", [](const char* n) { ResolveAliasScenario(n, kRgba64, false, 0, 0, true, 0); }},
+      {"resolve_alias_partial_dxt1", [](const char* n) { ResolveAliasScenario(n, kDxt1_128, true, 0x1000, 0, true, 0); }},
+      {"resolve_alias_then_page_reset", [](const char* n) { ResolveAliasScenario(n, kRgba64, true, 0, 0, true, 1); }},
+      {"resolve_alias_then_cpu_partial", [](const char* n) { ResolveAliasScenario(n, kDxt1_128, true, 0, 0x1000, true, 2); }},
   };
 
   int ran = 0;

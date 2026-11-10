@@ -193,6 +193,11 @@ class TexCacheStressAccess {
     }
     return t->texture_3d_as_2d();
   }
+
+  Texture* ExistingWrapper3DAs2D(const xenos::xe_gpu_texture_fetch_t& fetch) {
+    auto* t = static_cast<MetalTextureCache::MetalTexture*>(Find(fetch));
+    return t ? t->texture_3d_as_2d() : nullptr;
+  }
 #endif
 
   // A resolve / memexport style GPU write: valid with GPU-written data.
@@ -730,6 +735,59 @@ void ThreeDAs2DScenario(const char* name) {
     std::printf("  ok %s (hash %016" PRIX64 ")\n", name, hs);
   }
 }
+
+void ThreeDAs2DLoadDeferScenario(const char* name) {
+  const TexDesc d = {xenos::TextureFormat::k_8_8_8_8, 32, 32, true, 0, false,
+                     "rgba8 32x32x4 tiled 3d", xenos::DataDimension::k3D, 4};
+  Region base = Alloc(256 * 1024);
+  xe_gpu_texture_fetch_t f = MakeFetch(d, base.phys, 0);
+  Extents e = GetExtents(f);
+  const uint32_t blen = (e.base + 0xFFF) & ~0xFFFu;
+  Seed(base, 0, Pattern(base.size, 70));
+  if (!g_acc->Materialize(f)) {
+    std::printf("HARNESS scenario %s: initial materialize failed\n", name);
+    ++g_harness_errors;
+    return;
+  }
+
+  Injection inj;
+  inj.point = hooks::Point::kRequestRangeBeforeCheck;
+  inj.base_page = base.phys >> 12;
+  inj.action = [&]() { GuestWrite(base, 0, Pattern(blen, 71)); };
+  g_injection = &inj;
+  auto* loaded = g_acc->Wrapper3DAs2D(f);
+  g_injection = nullptr;
+  if (!inj.fired) {
+    std::printf("HARNESS scenario %s: source validity hook never reached\n", name);
+    ++g_harness_errors;
+    return;
+  }
+  if (loaded || !g_acc->ExistingWrapper3DAs2D(f)) {
+    std::printf("FAIL scenario %s: a transient source invalidation destroyed "
+                "the 3D-as-2D wrapper instead of deferring its load\n",
+                name);
+    ++g_failures;
+    return;
+  }
+
+  std::vector<std::vector<uint8_t>> served, ref;
+  if (!g_acc->Materialize(f) || !ReadWrapper(name, f, served)) return;
+  Region tb = Alloc(base.size);
+  std::vector<uint8_t> bytes;
+  ReadGuest(base, 0, base.size, bytes);
+  Seed(tb, 0, bytes);
+  xe_gpu_texture_fetch_t rf = MakeFetch(d, tb.phys, 0);
+  if (!g_acc->Materialize(rf) || !ReadWrapper(name, rf, ref)) return;
+  const uint64_t hs = HashLevels(served), hr = HashLevels(ref);
+  if (hs != hr) {
+    std::printf("FAIL scenario %s: deferred wrapper reload served stale bytes "
+                "(expected hash %016" PRIX64 ", got %016" PRIX64 ")\n",
+                name, hr, hs);
+    ++g_failures;
+  } else if (g_verbose) {
+    std::printf("  ok %s (deferred, then hash %016" PRIX64 ")\n", name, hs);
+  }
+}
 #endif
 
 struct ScenarioEntry {
@@ -824,6 +882,8 @@ int main(int argc, char** argv) {
 #ifdef REX_METAL_3D_AS_2D_REFRESH
       // 7. A 3D texture sampled as 2D (needs the metal_3d_as_2d_refresh fix).
       {"3d_as_2d_after_cpu_write", [](const char* n) { ThreeDAs2DScenario(n); }},
+      {"3d_as_2d_source_invalidated_during_create",
+       [](const char* n) { ThreeDAs2DLoadDeferScenario(n); }},
 #endif
   };
 

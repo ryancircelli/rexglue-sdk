@@ -1088,10 +1088,11 @@ bool MetalTextureCache::PrepareTextureDataLoadRanges(
   return ok;
 }
 
-bool MetalTextureCache::RequestTextureDataRange(Texture&,
+bool MetalTextureCache::RequestTextureDataRange(Texture& texture,
                                                 TextureDataRangeSource source,
                                                 uint32_t start,
                                                 uint32_t length) {
+  REX_METAL_TEST_HOOK(kRequestRangeBeforeCheck, texture);
   if (shared_memory().IsRangeValid(start, length)) {
     return true;
   }
@@ -6657,6 +6658,11 @@ MTL::Texture* MetalTextureCache::MetalTexture::GetOrCreate3DAs2DView(
                                                        texture_2d, false, true);
     texture_3d_as_2d_->SetForceLoad3DTiling(true);
     if (!texture_cache_.LoadTextureData(*texture_3d_as_2d_)) {
+      if (REXCVAR_GET(metal_3d_as_2d_refresh)) {
+        // A CPU write can invalidate the source after its shared-memory
+        // upload. Keep the wrapper outdated so the next draw retries it.
+        return nullptr;
+      }
       REXLOG_ERROR("MetalTexture: Failed to load 3D-as-2D texture data");
       texture_3d_as_2d_.reset();
       return nullptr;
@@ -6668,7 +6674,6 @@ MTL::Texture* MetalTextureCache::MetalTexture::GetOrCreate3DAs2DView(
     // catches a request outside materialization. LoadTextureData returns at
     // once when nothing is outdated.
     if (!texture_cache_.LoadTextureData(*texture_3d_as_2d_)) {
-      REXLOG_ERROR("MetalTexture: Failed to reload 3D-as-2D texture data");
       return nullptr;
     }
   }

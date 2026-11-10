@@ -24,6 +24,9 @@ enum class Point : uint32_t {
   // LoadTextureDataFromResidentMemoryImpl: the copy is encoded, the texture
   // not yet marked up to date and watched.
   kResidentAfterCopy,
+  // RequestTextureDataRange: shared memory upload finished, before the
+  // post-upload source validity check.
+  kRequestRangeBeforeCheck,
 };
 
 // base_page: the texture key's physical 4 KB page of mip 0.

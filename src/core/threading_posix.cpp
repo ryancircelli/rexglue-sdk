@@ -155,6 +155,20 @@ std::array<std::atomic<bool>, static_cast<size_t>(SignalType::k_Count)> signal_h
 
 static void signal_handler(int signal, siginfo_t* info, void* context);
 
+// Blocks the suspend and user-callback signals on the calling thread. Called right before a thread
+// exits: from pthread_exit onward the thread tears down its thread-local storage, and a signal landing
+// then runs signal_handler while libmalloc is mid-free. Any thread_local access in the handler can
+// re-instantiate the TLV block (a malloc), which aborts with "Trying to recursively lock an
+// os_unfair_lock". Seen at quit, when the title wakes every guest thread while some are exiting.
+// A blocked signal still pending when the thread dies is discarded.
+static void block_thread_signals_for_exit() {
+  sigset_t set;
+  sigemptyset(&set);
+  sigaddset(&set, GetSystemSignal(SignalType::kThreadSuspend));
+  sigaddset(&set, GetSystemSignal(SignalType::kThreadUserCallback));
+  pthread_sigmask(SIG_BLOCK, &set, nullptr);
+}
+
 void install_signal_handler(SignalType type) {
   bool expected = false;
   if (!signal_handler_installed[static_cast<size_t>(type)].compare_exchange_strong(expected,
@@ -868,6 +882,16 @@ class PosixCondition<Thread> : public PosixConditionBase {
       return;
     }
 
+    // A thread that has finished (returned, or is inside Terminate on its way to pthread_exit) never
+    // runs another callback. Signalling it only risks landing in its teardown, and once it is gone
+    // pthread_kill fails with ESRCH ("signal delivery failed (3)" at every quit).
+    {
+      std::unique_lock<std::mutex> lock(state_mutex_);
+      if (state_ == State::kFinished) {
+        return;
+      }
+    }
+
 #if defined(__APPLE__)
     // macOS has no sigqueue/pthread_sigqueue; pthread_kill delivers the signal
     // without the sigval payload.
@@ -981,6 +1005,7 @@ class PosixCondition<Thread> : public PosixConditionBase {
       cond_.notify_all();
     }
     if (is_current_thread) {
+      block_thread_signals_for_exit();
       pthread_exit(reinterpret_cast<void*>(exit_code));
     } else {
 #if REX_PLATFORM_ANDROID
@@ -1451,6 +1476,7 @@ void* PosixCondition<Thread>::ThreadStartRoutine(void* parameter) {
     thread->handle_.cond_.notify_all();
   }
 
+  block_thread_signals_for_exit();
   current_thread_ = nullptr;
   current_thread_condition_ = nullptr;
   return nullptr;
@@ -1502,6 +1528,7 @@ void Thread::Exit(int exit_code) {
     current_thread_->Terminate(exit_code);
   } else {
     // Should only happen with the main thread
+    block_thread_signals_for_exit();
     pthread_exit(reinterpret_cast<void*>(exit_code));
   }
   // Function must not return
@@ -1521,13 +1548,20 @@ void set_current_thread_name(const std::string_view name) {
 #endif
 }
 
+// Kept out of line so the compiler cannot hoist the thread_local access above the signal type check
+// in signal_handler: it did, so every user-callback wakeup touched the TLV (see
+// block_thread_signals_for_exit for why that can abort).
+[[gnu::noinline]] static void suspend_current_thread_from_signal() {
+  PosixThread* thread = current_thread_;
+  if (thread) {
+    thread->WaitSuspended();
+  }
+}
+
 static void signal_handler(int signal, siginfo_t* /*info*/, void* /*context*/) {
   switch (GetSystemSignalType(signal)) {
     case SignalType::kThreadSuspend: {
-      if (!current_thread_) {
-        return;
-      }
-      current_thread_->WaitSuspended();
+      suspend_current_thread_from_signal();
     } break;
     case SignalType::kThreadUserCallback: {
       // Callbacks are drained from alertable waits in normal thread context.

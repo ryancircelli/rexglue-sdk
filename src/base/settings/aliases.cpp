@@ -196,6 +196,7 @@ constexpr std::pair<const char*, const char*> kAliases[] = {
     {"window_height", "ui.window_height"},
     {"fullscreen", "ui.fullscreen"},
     {"fullscreen_exclusive", "ui.fullscreen_exclusive"},
+    {"window_start_minimized", "ui.window_start_minimized"},
     {"monitor", "ui.monitor"},
     {"video_mode_width", "ui.video_mode_width"},
     {"video_mode_height", "ui.video_mode_height"},

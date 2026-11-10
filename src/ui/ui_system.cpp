@@ -263,6 +263,7 @@ void UISystem::State::OpenWindow() {
   config.aspect_ratio = ui::detail::ParseAspectRatio(owner.GetSettings().aspect_ratio.Get());
   config.fullscreen = owner.GetSettings().fullscreen.Get();
   config.fullscreen_exclusive = owner.GetSettings().fullscreen_exclusive.Get();
+  config.start_minimized = owner.GetSettings().window_start_minimized.Get();
   config.monitor = owner.GetSettings().monitor.Get();
   config.vulkan_surface = graphics && graphics->GetDriverName() == "vulkan";
   ui::detail::ResolveModeSize(owner.GetSettings(), config.mode_width, config.mode_height);

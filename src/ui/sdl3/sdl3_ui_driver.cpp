@@ -481,6 +481,14 @@ Result<void> SDL3UIDriver::OpenWindow(const WindowConfig& config) {
     return Err(ErrorCategory::kRuntime, "a window is already open");
   }
   SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_HIDDEN;
+  if (config.start_minimized) {
+    // Created hidden, so SDL keeps the minimize pending and applies it at SDL_ShowWindow below.
+    // Without the activation hints, showing (and raising) the window would still make it key and
+    // bring the app to the front.
+    flags |= SDL_WINDOW_MINIMIZED;
+    SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, "0");
+    SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_RAISED, "0");
+  }
 #if REX_PLATFORM_LINUX
   if (config.vulkan_surface) {
     flags |= SDL_WINDOW_VULKAN;
@@ -499,7 +507,9 @@ Result<void> SDL3UIDriver::OpenWindow(const WindowConfig& config) {
                std::format("SDL_CreateWindow failed: {}", SDL_GetError()));
   }
   s.window_id = SDL_GetWindowID(s.window);
-  s.fullscreen = config.fullscreen;
+  // A fullscreen window takes over the screen (its own Space on macOS) whether or not it is
+  // activated, so a window that starts minimized starts windowed.
+  s.fullscreen = config.fullscreen && !config.start_minimized;
   s.exclusive = config.fullscreen_exclusive;
   s.mode_width = static_cast<i32>(config.mode_width);
   s.mode_height = static_cast<i32>(config.mode_height);

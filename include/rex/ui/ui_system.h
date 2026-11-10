@@ -126,6 +126,10 @@ class REX_UI_API UISettings final : public SettingOwner {
   REX_SETTING(i32, window_height, 0, "Window height, 0 for the video mode height", Range{0, 16384});
   REX_SETTING(bool, fullscreen, true, "Fullscreen");
   REX_SETTING(bool, fullscreen_exclusive, false, "Exclusive fullscreen");
+  REX_SETTING(bool, window_start_minimized, false,
+              "Start the window minimized, without activating the app or taking focus, and "
+              "windowed (fullscreen is skipped at start). For test runs",
+              kRestart);
   REX_SETTING(i32, monitor, 0, "Display to open on", Range{0, 16});
   REX_SETTING(i32, min_width, 0, "Smallest window width", Range{0, 16384});
   REX_SETTING(i32, min_height, 0, "Smallest window height", Range{0, 16384});

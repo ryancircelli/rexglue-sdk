@@ -73,6 +73,11 @@ struct WindowConfig {
   ui::AspectRatio aspect_ratio = ui::AspectRatio::kStretch;
   bool fullscreen = true;
   bool fullscreen_exclusive = false; /**< True for exclusive fullscreen, false for borderless. */
+  /**
+   * Open minimized, without activating the app or taking focus, and windowed. Automated test
+   * runs use it so the window does not take the desktop from whoever is using the machine.
+   */
+  bool start_minimized = false;
   i32 monitor = 0;
   bool vulkan_surface = false; /**< The graphics driver presents through Vulkan. */
   u32 mode_width = 0;          /**< Exclusive fullscreen mode width, 0 for the desktop. */

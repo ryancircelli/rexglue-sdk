@@ -24,6 +24,11 @@
 #include <string_view>
 
 REXCVAR_DEFINE_BOOL(mnk_mode, false, "Input", "Enable keyboard/mouse controller emulation");
+REXCVAR_DEFINE_INT32(mnk_player, 0, "Input",
+                     "Keyboard and mouse as a player of their own: 1-4 picks the player (the "
+                     "controllers fill the others). 0 = they control player 1 alongside its "
+                     "controller")
+    .range(0, 4);
 REXCVAR_DEFINE_BOOL(mnk_mouse, false, "Input",
                     "Use the mouse for the right stick. Off means the right stick comes "
                     "from the keybind_rstick_* keys only");
@@ -393,6 +398,7 @@ void MnkInputDriver::EnumerateDevices(std::vector<DeviceInfo>& out) {
   info.subtype =
       IsPassthroughEnabled() ? XINPUT_DEVSUBTYPE_USB_KEYBOARD : XINPUT_DEVSUBTYPE_GAMEPAD;
   info.synthetic = true;
+  info.fixed_user = REXCVAR_GET(mnk_player) - 1;
   out.push_back(info);
 }
 

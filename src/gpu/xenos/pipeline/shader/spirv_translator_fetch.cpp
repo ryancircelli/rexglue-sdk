@@ -454,9 +454,9 @@ void SPIRVShaderTranslator::ProcessTextureFetchInstruction(
   }
   u32 used_result_component_count = rex::BitCount(used_result_components);
   if (!used_result_nonzero_components) {
-    if (used_result_components) {
-      StoreResult(instr.result, const_float_vectors_0[used_result_component_count - 1]);
-    }
+    StoreResult(instr.result, used_result_components
+                                  ? const_float_vectors_0[used_result_component_count - 1]
+                                  : spv::NoResult);
     return;
   }
 

@@ -12,6 +12,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -201,6 +202,12 @@ class SPIRVShaderTranslator : public ShaderTranslator {
     i32 vertex_base_index;
     u32 vertex_index_reset;
     u32 compute_memexport_vertex_count;
+    /**
+     * 1 bit per texture fetch constant that references a draw resolution scaled texture.
+     * Placed here to fill the eighth dword, so user_clip_planes and everything after it stay
+     * 16 byte aligned.
+     */
+    u32 textures_resolution_scaled;
     f32 user_clip_planes[6][4];
 
     f32 ndc_scale[3];
@@ -212,8 +219,6 @@ class SPIRVShaderTranslator : public ShaderTranslator {
     f32 point_constant_diameter[2];
     /** Diameter in guest screen coordinates to radius in NDC for the host viewport. */
     f32 point_screen_diameter_to_ndc_radius[2];
-    /** 1 bit per texture fetch constant that references a draw resolution scaled texture. */
-    u32 textures_resolution_scaled;
 
     /**
      * Post swizzle TextureSign per byte for each needed component of the 32 used texture
@@ -288,6 +293,22 @@ class SPIRVShaderTranslator : public ShaderTranslator {
     f32 tessellation_factor_range_min;
     f32 tessellation_factor_range_max;
   };
+  // The SPIR-V block is declared with std140 offsets taken from this structure, so vectors and
+  // arrays of vectors must be 16 byte aligned, and 2 component vectors 8 byte aligned.
+  static_assert(offsetof(SystemConstants, user_clip_planes) % 16 == 0);
+  static_assert(offsetof(SystemConstants, ndc_scale) % 16 == 0);
+  static_assert(offsetof(SystemConstants, ndc_offset) % 16 == 0);
+  static_assert(offsetof(SystemConstants, point_constant_diameter) % 8 == 0);
+  static_assert(offsetof(SystemConstants, point_screen_diameter_to_ndc_radius) % 8 == 0);
+  static_assert(offsetof(SystemConstants, texture_swizzled_signs) % 16 == 0);
+  static_assert(offsetof(SystemConstants, texture_swizzles) % 16 == 0);
+  static_assert(offsetof(SystemConstants, color_exp_bias) % 16 == 0);
+  static_assert(offsetof(SystemConstants, edram_stencil_front) % 8 == 0);
+  static_assert(offsetof(SystemConstants, edram_stencil_back) % 8 == 0);
+  static_assert(offsetof(SystemConstants, edram_rt_base_dwords_scaled) % 16 == 0);
+  static_assert(offsetof(SystemConstants, edram_rt_keep_mask) % 16 == 0);
+  static_assert(offsetof(SystemConstants, edram_rt_clamp) % 16 == 0);
+  static_assert(offsetof(SystemConstants, edram_blend_constant) % 16 == 0);
 
   enum ConstantBuffer : u8 {
     kConstantBufferSystem,
@@ -1058,6 +1079,7 @@ class SPIRVShaderTranslator : public ShaderTranslator {
     kSystemConstantVertexBaseIndex,
     kSystemConstantVertexIndexReset,
     kSystemConstantComputeMemExportVertexCount,
+    kSystemConstantTexturesResolutionScaled,
     kSystemConstantUserClipPlanes,
     kSystemConstantVertexIndexMin,
     kSystemConstantVertexIndexMax,
@@ -1067,7 +1089,6 @@ class SPIRVShaderTranslator : public ShaderTranslator {
     kSystemConstantPointVertexDiameterMax,
     kSystemConstantPointConstantDiameter,
     kSystemConstantPointScreenDiameterToNDCRadius,
-    kSystemConstantTexturesResolutionScaled,
     kSystemConstantTextureSwizzledSigns,
     kSystemConstantTextureSwizzles,
     kSystemConstantAlphaTestReference,

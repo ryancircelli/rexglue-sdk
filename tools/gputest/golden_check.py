@@ -29,6 +29,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import struct
 import sys
 import time
 from collections import defaultdict
@@ -52,11 +53,71 @@ def adapter_for(layer, overrides):
     return BUILTIN.get(layer)
 
 
+def _q8(v):
+    if v != v:
+        return -1
+    v = min(max(v, 0.0), 1.0)
+    return int(round(v * 255.0))  # round half to even, as the RB does for unorm
+
+
+def _q16(v):
+    try:
+        return struct.pack("<e", v)
+    except (OverflowError, struct.error):
+        return b"inf" if v > 0 else b"-inf"
+
+
+def split_compare(got, want, spec, taint, per_op, stored=False):
+    """Bit-exact compare split by transcendental taint (per element u8 count,
+    from a referee's "<output>.taint"). Untainted elements are the gated ones;
+    tainted ones are reported with max ULP and the count above per_op x ops.
+    stored=True adds the stored-value view: unorm8 and float16 quantization."""
+    elem, mode = spec["elem"], spec.get("compare", "bits")
+    r = {"values": 0, "mism": 0, "first": None, "max_ulp": None, "t_values": 0, "t_mism": 0, "t_over": 0,
+         "t_max_ulp": 0, "q8_values": 0, "q8_mism": 0, "q16_mism": 0}
+    if mode == "none":
+        return r
+    w = gs.raw_words(want, elem)
+    g = gs.raw_words(got, elem) if got is not None else ()
+    if len(g) != len(w):
+        r.update(values=len(w), mism=len(w), first=(-1, "size %d" % len(g), "size %d" % len(w)))
+        return r
+    t = taint if taint is not None and len(taint) == len(w) else None
+    nt = len(w) - (sum(1 for x in t if x) if t else 0)
+    r["values"] = nt
+    r["t_values"] = len(w) - nt
+    if stored and elem == "f32":
+        r["q8_values"] = len(w)
+        gf = struct.unpack("<%df" % len(g), got)
+        wf = struct.unpack("<%df" % len(w), want)
+        for a, b in zip(gf, wf):
+            r["q8_mism"] += _q8(a) != _q8(b)
+            r["q16_mism"] += _q16(a) != _q16(b)
+    if got == want:
+        return r
+    for i, (a, b) in enumerate(zip(g, w)):
+        if a == b or (mode == "bits_nan_any" and gs.is_nan_bits(a, elem) and gs.is_nan_bits(b, elem)):
+            continue
+        u = abs(gs.f32_ordinal(a) - gs.f32_ordinal(b)) if elem == "f32" else abs(a - b)
+        if t and t[i]:
+            r["t_mism"] += 1
+            r["t_max_ulp"] = max(r["t_max_ulp"], u)
+            r["t_over"] += u > per_op * t[i]
+            continue
+        r["mism"] += 1
+        r["max_ulp"] = max(r["max_ulp"] or 0, u)
+        if r["first"] is None:
+            r["first"] = (i, a, b)
+    return r
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--store", default="~/Games/Xbox360/bo2-build/gputest/golden")
     ap.add_argument("--layers", default="")
     ap.add_argument("-j", type=int, default=os.cpu_count() or 4)
+    ap.add_argument("--taint-ulp-per-op", type=int, default=3,
+                    help="documented ULP bound per transcendental op on tainted elements (reported, not gated)")
     ap.add_argument("--max-ppm", type=float, default=1.0)
     ap.add_argument("--adapter", action="append", default=[], help="LAYER=CMD")
     ap.add_argument("--out", default="")
@@ -132,14 +193,22 @@ def main():
             if os.path.exists(os.path.join(d, "ERROR")):
                 err = open(os.path.join(d, "ERROR")).read().strip()
             case_mism, firsts = 0, []
+            taints = {}
+            for e in m["referees"].values():
+                for on, oh in e["outputs"].items():
+                    if on.endswith(".taint") and store.has(oh):
+                        taints[on[:-6]] = store.get(oh)
             for name, h in m["golden"].items():
                 spec = m["outputs"][name]
                 want = store.get(h)
                 gp = os.path.join(d, name)
                 got = open(gp, "rb").read() if (not err and os.path.exists(gp)) else None
-                total, mism, first, ulp = gs.compare_blob(got, want, spec["elem"], spec.get("compare", "bits"))
-                s["values"] += total
-                s["mism"] += mism
+                r = split_compare(got, want, spec, taints.get(name), args.taint_ulp_per_op,
+                                  stored=(layer == "shader_ps" and name.startswith("oC")))
+                total, mism, first, ulp = r["values"], r["mism"], r["first"], r["max_ulp"]
+                for k in ("values", "mism", "t_values", "t_mism", "t_over", "q8_values", "q8_mism", "q16_mism"):
+                    s[k] = s.get(k, 0) + r[k]
+                s["t_max_ulp"] = max(s.get("t_max_ulp", 0), r["t_max_ulp"])
                 case_mism += mism
                 if ulp is not None:
                     s["max_ulp"] = max(s["max_ulp"] or 0, ulp)
@@ -147,7 +216,7 @@ def main():
                     i, a, b = first
                     firsts.append({"output": name, "index": i, "got": a if isinstance(a, str) else "0x%x" % a,
                                    "want": b if isinstance(b, str) else "0x%x" % b, "mismatches": mism,
-                                   "values": total, "max_ulp": ulp})
+                                   "values": total, "max_ulp": ulp, "tainted_mismatches": r["t_mism"]})
             if case_mism:
                 s["bad_cases"] += 1
                 rec = {"layer": layer, "kind": kind, "case": m["id"], "source": m.get("source", ""),
@@ -186,6 +255,13 @@ def main():
                 ("  max %d ulp" % s["max_ulp"]) if s["max_ulp"] else "",
                 "  FAIL" if gate and over else ("" if gate else "  (info)"),
                 ("  [" + other + "]") if other and kind == "agreed" else ""))
+            if s.get("t_values"):
+                lines.append("    transcendental-tainted (rule-pending, not gated): %d values, %d differ, max %d ulp, "
+                             "%d above %d ulp x ops" % (s["t_values"], s["t_mism"], s["t_max_ulp"], s["t_over"],
+                                                         args.taint_ulp_per_op))
+            if s.get("q8_values"):
+                lines.append("    stored-value view (color outputs quantized): unorm8 %.3f ppm, float16 %.3f ppm" % (
+                    s["q8_mism"] * 1e6 / s["q8_values"], s["q16_mism"] * 1e6 / s["q8_values"]))
             if s["first"]:
                 f = s["first"]
                 o = f["outputs"][0] if f["outputs"] else {}

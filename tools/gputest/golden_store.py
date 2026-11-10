@@ -54,6 +54,9 @@ class Store:
         with open(self.obj_path(h), "rb") as f:
             return f.read()
 
+    def has(self, h):
+        return os.path.exists(self.obj_path(h))
+
     def case_path(self, layer, cid, disputed=False):
         return os.path.join(self.root, "disputes" if disputed else "cases", layer, cid + ".json")
 

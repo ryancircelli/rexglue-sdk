@@ -53,6 +53,14 @@ SHADERTOOL = os.path.join(BIN, "rexgpu-shadertool")
 RUNNER = os.path.join(BIN, "rexgpu-metal-runner")
 XLATE = os.path.expanduser(os.environ.get(
     "GOLDEN_MSL_XLATE", "~/dev/rexglue-sdk-metal-nan/out/mac-arm64/Release/rexgpu-metal-msl-xlate"))
+# GOLDEN_MSL_MATH (experiment knob; the cache key includes it):
+#   fast (default)       the translator's MSL as is
+#   precise              fast:: transcendentals rewritten to precise::
+#   perturb:SEED:B       each transcendental result moved by a pseudo-random
+#                        -B..+B ULP (hash of input bits, call site, SEED); used
+#                        to measure how far per-op ULP error propagates.
+MSL_MATH = os.environ.get("GOLDEN_MSL_MATH", "fast")
+TRANSCENDENTAL_RE = re.compile(r"\bfast::(rsqrt|exp2|log2|sqrt|sin|cos|exp|log|powr|pow)\(")
 CACHE = os.path.expanduser(os.environ.get("GOLDEN_CACHE", "~/Games/Xbox360/bo2-build/gputest/golden-cache"))
 HARNESS_VERSION = "1"
 QW = 16                      # quads per row in the pixel harness
@@ -152,10 +160,42 @@ def xlate_identity():
     return "%s:%d:%d" % (os.path.realpath(XLATE), st.st_size, int(st.st_mtime))
 
 
+PERTURB_HELPERS = r"""
+constant uint XE_PT_SEED = %du;
+constant int XE_PT_B = %d;
+static inline float xe_pt1(float v, float x, uint s) {
+  if (!isfinite(v) || v == 0.0f) return v;
+  uint h = as_type<uint>(x) * 0x9E3779B1u ^ s * 0x85EBCA77u ^ XE_PT_SEED * 0xC2B2AE3Du;
+  h ^= h >> 15; h *= 0x2C1B3C6Du; h ^= h >> 12; h *= 0x297A2D39u; h ^= h >> 15;
+  int d = int(h %% uint(2 * XE_PT_B + 1)) - XE_PT_B;
+  return as_type<float>(as_type<int>(v) + d);
+}
+static inline float2 xe_pt1(float2 v, float2 x, uint s) { return float2(xe_pt1(v.x, x.x, s), xe_pt1(v.y, x.y, s)); }
+static inline float3 xe_pt1(float3 v, float3 x, uint s) { return float3(xe_pt1(v.xy, x.xy, s), xe_pt1(v.z, x.z, s)); }
+static inline float4 xe_pt1(float4 v, float4 x, uint s) { return float4(xe_pt1(v.xy, x.xy, s), xe_pt1(v.zw, x.zw, s)); }
+#define XE_PT_OP(op) template <typename T> static inline T xe_pt_##op(uint s, T x) { return xe_pt1(fast::op(x), x, s); }
+XE_PT_OP(rsqrt) XE_PT_OP(exp2) XE_PT_OP(log2) XE_PT_OP(sqrt) XE_PT_OP(sin) XE_PT_OP(cos) XE_PT_OP(exp) XE_PT_OP(log)
+"""
+
+
+def perturb_msl(text, seed, bound):
+    site = [0]
+
+    def sub(mm):
+        site[0] += 1
+        if mm.group(1) in ("pow", "powr"):
+            return mm.group(0)
+        return "xe_pt_%s(%du, " % (mm.group(1), site[0])
+    body = TRANSCENDENTAL_RE.sub(sub, text)
+    anchor = "using namespace metal;"
+    i = body.index(anchor) + len(anchor)
+    return body[:i] + PERTURB_HELPERS % (seed, bound) + body[i:]
+
+
 def prepare(ucode, stype, interp_mask, ident):
     """Translates and compiles once per (ucode, mask, translator). Returns a
     dict with paths and metadata, or {"error": ...}."""
-    key = hashlib.sha256(ucode + ("%s:%x:%s:%s" % (stype, interp_mask, ident, HARNESS_VERSION)).encode()).hexdigest()
+    key = hashlib.sha256(ucode + ("%s:%x:%s:%s:%s" % (stype, interp_mask, ident, HARNESS_VERSION, MSL_MATH)).encode()).hexdigest()
     d = os.path.join(CACHE, key[:2], key)
     meta_p = os.path.join(d, "meta.json")
     if os.path.exists(meta_p):
@@ -186,6 +226,10 @@ def prepare(ucode, stype, interp_mask, ident):
             else:
                 side = json.load(open(msl + ".json"))
                 text = open(msl).read()
+                if MSL_MATH == "precise":
+                    text = TRANSCENDENTAL_RE.sub(r"precise::\1(", text)
+                elif MSL_MATH.startswith("perturb:"):
+                    text = perturb_msl(text, *[int(v) for v in MSL_MATH.split(":")[1:3]])
                 if stype == "vs":
                     cap, err = sd.make_vs_capture(text, msl + ".cap.metal")
                     lib = msl + ".cap.metal"

@@ -19,6 +19,7 @@ project(ReXGlue
 # Build Options
 #==========================================================
 option(REXGLUE_BUILD_TESTS       "Build PPC instruction and unit tests" OFF)
+option(REXGLUE_BUILD_PADTEST     "Build rex-padtest, the controller test tool" ${PROJECT_IS_TOP_LEVEL})
 option(REXGLUE_ENABLE_SANITIZERS "Enable UndefinedBehaviorSanitizer" OFF)
 option(REXGLUE_ENABLE_FIDELITYFX "Enable optional AMD FidelityFX integration (experimental)" OFF)
 option(REXGLUE_ENABLE_TRACY                "Enable Tracy profiler integration" ON)
@@ -266,6 +267,10 @@ add_subdirectory(src/system)
 add_subdirectory(src/kernel)
 add_subdirectory(src/codegen)
 add_subdirectory(src/rexglue)
+
+if(REXGLUE_BUILD_PADTEST)
+    add_subdirectory(tools/padtest)
+endif()
 
 # Add tests subdirectory if tests are enabled
 if(REXGLUE_BUILD_TESTS)

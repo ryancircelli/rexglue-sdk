@@ -399,6 +399,15 @@ class SpirvShaderTranslator : public ShaderTranslator {
 
     bool demote_to_helper_invocation;
     bool sample_rate_shading;
+
+    // Allow the host compiler to contract (fuse into FMA) float operations in pixel shaders by
+    // leaving out the NoContraction decorations. SPIRV-Cross's Metal backend implements every
+    // NoContraction operation as a call to a helper function that the Metal compiler cannot
+    // optimize, making pixel shaders several times slower on Apple GPUs.
+    bool fragment_contraction = false;
+    // The same for vertex shaders. Equality of positions between passes then relies only on the
+    // Invariant decoration of the outputs, so this is riskier than fragment_contraction.
+    bool vertex_contraction = false;
   };
 
   SpirvShaderTranslator(const Features& features, bool native_2x_msaa_with_attachments,

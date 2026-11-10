@@ -55,6 +55,17 @@ REXCVAR_DEFINE_INT32(
     .range(-1, 32)
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 
+REXCVAR_DEFINE_BOOL(vulkan_moltenvk_pixel_shader_contraction, true, "GPU/Vulkan",
+                    "On MoltenVK, let the Metal compiler fuse float operations in pixel shaders "
+                    "into FMA instead of keeping each operation exact. Exact operations become "
+                    "unoptimizable helper calls in Metal Shading Language and make pixel shaders "
+                    "up to 5x slower on Apple GPUs")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_BOOL(vulkan_moltenvk_vertex_shader_contraction, false, "GPU/Vulkan",
+                    "On MoltenVK, also let vertex shader float operations be fused. Faster, but "
+                    "positions may then differ slightly between passes (only the invariant "
+                    "position output keeps them equal), which can cause depth fighting")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 REXCVAR_DEFINE_BOOL(vulkan_tessellation_wireframe, false, "GPU/Vulkan",
                     "Render tessellation as wireframe")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
@@ -291,8 +302,15 @@ bool VulkanPipelineCache::Initialize() {
   bool edram_fragment_shader_interlock =
       render_target_cache_.GetPath() == RenderTargetCache::Path::kPixelShaderInterlock;
 
+  SpirvShaderTranslator::Features shader_translator_features(vulkan_device);
+  if (vulkan_device->properties().driverID == VK_DRIVER_ID_MOLTENVK) {
+    shader_translator_features.fragment_contraction =
+        REXCVAR_GET(vulkan_moltenvk_pixel_shader_contraction);
+    shader_translator_features.vertex_contraction =
+        REXCVAR_GET(vulkan_moltenvk_vertex_shader_contraction);
+  }
   shader_translator_ = std::make_unique<SpirvShaderTranslator>(
-      SpirvShaderTranslator::Features(vulkan_device),
+      shader_translator_features,
       render_target_cache_.msaa_2x_attachments_supported(),
       render_target_cache_.msaa_2x_no_attachments_supported(), edram_fragment_shader_interlock,
       render_target_cache_.draw_resolution_scale_x(),

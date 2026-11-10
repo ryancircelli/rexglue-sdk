@@ -32,10 +32,11 @@ namespace rg = rex::graphics;
 // ---------------------------------------------------------------------------
 // Rules.
 
-RX_DEFINE_RULE(raster_sample_positions, 1,
+RX_DEFINE_RULE(raster_sample_positions, 2,
                "xenia-canary@cf206a3b src/xenia/gpu/draw_util.h:150-152 (kXenosSamplePositions2x/4x, "
-               "from the R6xx 3D register reference PA_SC_MODE_CNTL and Mesa r600)",
-               false,
+               "inferred from the R6xx 3D register reference PA_SC_MODE_CNTL and Mesa r600; "
+               "Xenia explicitly says no public source directly documents Xenos positions)",
+               true,
                "4x RT, draw a 1-pixel-wide vertical edge at x = 10 + k/16 for k = -8..8; per k resolve "
                "each sample separately (copy_sample_select 0..3) and record which samples are covered");
 RX_DEFINE_RULE(raster_viewport_vte, 1,

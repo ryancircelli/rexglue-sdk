@@ -166,6 +166,21 @@ struct Program {
   }
   // op: 1 exec, 2 exece, 3 cexec, 4 cexece, 5 cexec_pred, 6 cexece_pred, 13/14 pred_clean
   void Exec(uint32_t op, int block, uint32_t bool_addr = 0, bool cond = false) {
+    // ucode.h ControlFlowExecInstruction::count is only 3 bits. Split
+    // synthetic blocks so an 8-instruction test cannot silently encode zero.
+    constexpr size_t kMaxExecCount = 6;
+    if (blocks[size_t(block)].size() > kMaxExecCount) {
+      auto instructions = blocks[size_t(block)];
+      for (size_t first = 0; first < instructions.size(); first += kMaxExecCount) {
+        size_t end = std::min(first + kMaxExecCount, instructions.size());
+        int part = Block({instructions.begin() + first, instructions.begin() + end});
+        uint32_t part_op = op;
+        if (end != instructions.size() && (op == 2 || op == 4 || op == 6 || op == 14))
+          part_op = op - 1;
+        Exec(part_op, part, bool_addr, cond);
+      }
+      return;
+    }
     Cf c;
     c.exec_block = block;
     c.w1 = (bool_addr << 2) | (uint32_t(cond) << 10) | (op << 12);

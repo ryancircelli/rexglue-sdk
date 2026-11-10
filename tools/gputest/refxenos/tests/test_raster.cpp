@@ -169,6 +169,10 @@ static int UlpDiff(float a, float b) {
   return std::abs(ia - ib);
 }
 
+// Sources: xenia-canary@cf206a3b draw_util.h:128-152 (inferred Xenos
+// guest sample order); raster.cpp raster_top_left_fill (D3D edge ownership)
+// and raster_persp_interp / raster_interp_precision (smooth interpolation
+// with explicitly assumed arithmetic precision).
 // --- sample positions -------------------------------------------------------
 static void TestSamplePositions() {
   CHECK_EQ(RasterSampleCount(xenos::MsaaSamples::k1X), 1u);
@@ -212,6 +216,38 @@ static void TestFillRuleSquare() {
   CHECK(CoversRect(r, 0, 0, 4, 4));
   CHECK(r.AllOnce());
   delete rf;
+}
+
+// Shared diagonal through sample points: every guest sample is owned once,
+// for either winding and either diagonal. Pixel hit counts cannot establish
+// this under MSAA because different triangles can own disjoint samples.
+static void TestSharedSamples() {
+  for (auto msaa : {xenos::MsaaSamples::k1X, xenos::MsaaSamples::k2X,
+                    xenos::MsaaSamples::k4X}) {
+    auto* rf = Base(msaa, true);
+    uint32_t ns = RasterSampleCount(msaa);
+    for (int diagonal = 0; diagonal < 2; ++diagonal) {
+      for (int reverse = 0; reverse < 2; ++reverse) {
+        std::vector<VertexOut> v = diagonal == 0
+          ? std::vector<VertexOut>{V(0,0), V(8,0), V(8,8), V(0,0), V(8,8), V(0,8)}
+          : std::vector<VertexOut>{V(0,0), V(8,0), V(0,8), V(8,0), V(8,8), V(0,8)};
+        if (reverse) { std::swap(v[0],v[2]); std::swap(v[3],v[5]); }
+        uint32_t hits[8][8][4] = {};
+        DrawStats stats;
+        RasterizeDraw(*rf, {PT::kTriangleList, v, {}}, [&](const PixelQuad& q) {
+          for (int p = 0; p < 4; ++p) {
+            int x=q.x+(p&1), y=q.y+(p>>1);
+            if (x<0 || x>=8 || y<0 || y>=8) { CHECK(q.coverage[p]==0); continue; }
+            for (uint32_t sm=0; sm<ns; ++sm)
+              hits[y][x][sm] += (q.coverage[p] >> sm) & 1;
+          }
+        }, stats);
+        for (auto& row : hits) for (auto& pixel : row)
+          for (uint32_t sm=0; sm<ns; ++sm) CHECK_EQ(pixel[sm], 1u);
+      }
+    }
+    delete rf;
+  }
 }
 
 // A fan of 8 triangles around a center pixel center: every pixel once.
@@ -659,6 +695,7 @@ static void TestDepthAndOffset() {
 int main() {
   TestSamplePositions();
   TestFillRuleSquare();
+  TestSharedSamples();
   TestFillRuleFan();
   TestSnap();
   TestCullAndFace();

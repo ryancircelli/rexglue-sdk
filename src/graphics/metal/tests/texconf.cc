@@ -660,6 +660,7 @@ Result RunCase(const Case& c, LevelOutputs* metal_out = nullptr,
           bool from_signed = constant[i] ? (all_constant && need_signed)
                                          : out_sign[i] == ref::kSigned;
           float v = from_signed ? ms[t * 4 + i] : mu[t * 4 + i];
+          if (from_signed && f.format == ref::k_DXT3A_AS_1_1_1_1) v = -v;
           bool nonzero = (f.swizzle[i] & 0b101) != 4;
           if (!constant[i]) {
             if (out_sign[i] == ref::kBias) v = std::fma(v, 2.0f, -1.0f);

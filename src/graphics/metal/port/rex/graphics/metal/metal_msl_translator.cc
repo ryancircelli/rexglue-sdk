@@ -3035,6 +3035,13 @@ void MslShaderTranslator::ProcessTextureFetchInstruction(
       Open(fmt::format("if ({})", any_signed));
       std::string st = NewTemp("st");
       Line("float4 {} = {};", st, sample_avg(tex_s, xys, smp_name));
+      std::string tex_format = NewTemp("fmt");
+      Line("uint {} = extract_bits({}, 0, 6);", tex_format, FetchWord(tf, 1));
+      std::string one_bit_signed = NewTemp("onebit");
+      Line("bool4 {} = {} && ({} == uint4({}u));", one_bit_signed, is_signed,
+           tex_format,
+           uint32_t(xenos::TextureFormat::k_DXT3A_AS_1_1_1_1));
+      Line("{} = select({}, -{}, {});", st, st, st, one_bit_signed);
       Line("{}.{} = select({}, {}, {}).{};", res, m, res, st, is_signed, m);
       Close();
     };
@@ -3117,6 +3124,14 @@ void MslShaderTranslator::ProcessTextureFetchInstruction(
         Open(fmt::format("if ({})", any_signed));
         std::string st = NewTemp("st");
         Line("float4 {} = {};", st, sample(desc_s));
+        std::string tex_format = NewTemp("fmt");
+        Line("uint {} = extract_bits({}, 0, 6);", tex_format,
+             FetchWord(tf, 1));
+        std::string one_bit_signed = NewTemp("onebit");
+        Line("bool4 {} = {} && ({} == uint4({}u));", one_bit_signed,
+             is_signed, tex_format,
+             uint32_t(xenos::TextureFormat::k_DXT3A_AS_1_1_1_1));
+        Line("{} = select({}, -{}, {});", st, st, st, one_bit_signed);
         Line("{}.{} = select({}, {}, {}).{};", dst, m, dst, st, is_signed, m);
         Close();
       };

@@ -1972,9 +1972,10 @@ MTL::PixelFormat MetalTextureCache::GetPixelFormatForKey(TextureKey key) const {
     case xenos::TextureFormat::k_DXN:
       return decompress ? MTL::PixelFormatRG8Unorm
                         : MTL::PixelFormatBC5_RGUnorm;
-    case xenos::TextureFormat::k_DXT3A:
     case xenos::TextureFormat::k_DXT5A:
       return MTL::PixelFormatR8Unorm;
+    case xenos::TextureFormat::k_DXT3A:
+      return MTL::PixelFormatRG16Unorm;
     case xenos::TextureFormat::k_DXT3A_AS_1_1_1_1:
       return MTL::PixelFormatABGR4Unorm;
     case xenos::TextureFormat::k_CTX1:
@@ -5224,7 +5225,6 @@ uint32_t MetalTextureCache::GetHostFormatSwizzle(TextureKey key) const {
     case xenos::TextureFormat::k_8:
     case xenos::TextureFormat::k_8_A:
     case xenos::TextureFormat::k_8_B:
-    case xenos::TextureFormat::k_DXT3A:
     case xenos::TextureFormat::k_DXT5A:
     case xenos::TextureFormat::k_16:
     case xenos::TextureFormat::k_16_EXPAND:
@@ -5241,6 +5241,10 @@ uint32_t MetalTextureCache::GetHostFormatSwizzle(TextureKey key) const {
     case xenos::TextureFormat::k_DXN:
     case xenos::TextureFormat::k_32_32_FLOAT:
       return xenos::XE_GPU_TEXTURE_SWIZZLE_RGGG;
+
+    case xenos::TextureFormat::k_DXT3A:
+      return key.signed_separate ? XE_GPU_MAKE_TEXTURE_SWIZZLE(G, G, G, G)
+                                 : xenos::XE_GPU_TEXTURE_SWIZZLE_RRRR;
 
     case xenos::TextureFormat::k_5_6_5:
     case xenos::TextureFormat::k_10_11_11:
@@ -5281,6 +5285,8 @@ uint32_t MetalTextureCache::GetHostFormatSwizzle(TextureKey key) const {
 
 bool MetalTextureCache::IsSignedVersionSeparateForFormat(TextureKey key) const {
   switch (key.format) {
+    case xenos::TextureFormat::k_DXT3A:
+      return true;
     case xenos::TextureFormat::k_16:
       return r16_selection_.unsigned_uses_float ||
              r16_selection_.signed_uses_float;
@@ -6432,6 +6438,8 @@ MTL::PixelFormat MetalTextureCache::MetalTexture::GetViewPixelFormat(
       return MTL::PixelFormatRG16Snorm;
     case xenos::TextureFormat::k_16_16_16_16:
       return MTL::PixelFormatRGBA16Snorm;
+    case xenos::TextureFormat::k_DXT3A:
+      return MTL::PixelFormatRG16Snorm;
     // These formats are materialized as 8-bit UNORM texels by the Metal
     // compute decoders. Their channel codes are 8-bit, so the underlying bits
     // are shared by SNORM and UNORM; expose the signed view so the sampler
@@ -6509,6 +6517,12 @@ MTL::Texture* MetalTextureCache::MetalTexture::GetOrCreateView(
     uint32_t view_levels) {
   if (!metal_texture_) {
     return nullptr;
+  }
+  if (is_signed && key().format == xenos::TextureFormat::k_DXT3A) {
+    // The RG16 transcode stores the signed nibble representation in G while R
+    // keeps the unsigned value. Fetch constants still address the guest's
+    // single channel as R, so select the signed lane on this view.
+    host_swizzle = XE_GPU_MAKE_TEXTURE_SWIZZLE(G, G, G, G);
   }
   // [mip-lod] a view of the first view_levels levels only.
   if (view_levels >= MtlLevelCount()) {

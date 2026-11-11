@@ -19688,7 +19688,7 @@
 +        {4, 1},   // kDXT3ToRGBA8
 +        {4, 1},   // kDXT5ToRGBA8
 +        {2, 1},   // kDXNToRG8
-+        {1, 2},   // kDXT3A
++        {4, 2},   // kDXT3A
 +        {2, 2},   // kDXT3AAs1111ToBGRA4
 +        {2, 2},   // kDXT3AAs1111ToARGB4
 +        {1, 2},   // kDXT5AToR8

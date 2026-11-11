@@ -37,6 +37,7 @@ metal_dir=Path(__file__).resolve().parents[1]
 dxt_patch=metal_dir/'patches/xenia-dxt-rounding.patch'
 endian_patch=metal_dir/'patches/xenia-texture-endian.patch'
 dxt3a_patch=metal_dir/'patches/xenia-dxt3a-rg16.patch'
+hendeca_patch=metal_dir/'patches/xenia-hendeca-rgba32f.patch'
 overlay=root/'xenia-shaders'
 bc_shaders={
  'texture_load_dxt1_rgba8.cs.xesl',
@@ -60,7 +61,7 @@ def prepare_overlay():
   if dst.exists():shutil.rmtree(dst)
   dst.parent.mkdir(parents=True,exist_ok=True)
   shutil.copytree(src,dst)
- for shader_patch in (dxt_patch,endian_patch,dxt3a_patch):
+ for shader_patch in (dxt_patch,endian_patch,dxt3a_patch,hendeca_patch):
   result=subprocess.run(
    [patch_tool,'--batch','--no-backup-if-mismatch','-p1','-i',str(shader_patch)],
    cwd=overlay,capture_output=True,text=True)
@@ -79,7 +80,7 @@ for area in ['gpu','ui']:
    # any include the copy does not carry.
    jobs.append(('gpu',overlay/'gpu/shaders'/p.name,p.stem.replace('.','_'),[],
                 [xenia/'gpu/shaders'],
-                [dxt_patch,endian_patch,dxt3a_patch,
+                [dxt_patch,endian_patch,dxt3a_patch,hendeca_patch,
                  xenia/'gpu/shaders/pixel_formats.xesli',
                  xenia/'gpu/shaders/texture_load.xesli',
                  xenia/'gpu/shaders/texture_load_dxt3aas1111.xesli',
@@ -89,7 +90,7 @@ for area in ['gpu','ui']:
    shader_source=p
    includes=[]
    if area=='gpu' and p.name.startswith('texture_load_'):
-    deps.append(endian_patch)
+    deps.extend([endian_patch,dxt3a_patch,hendeca_patch])
     shader_source=overlay/'gpu/shaders'/p.name
     includes=[overlay/'gpu/shaders',xenia/'gpu/shaders']
    jobs.append((area,shader_source,p.stem.replace('.','_'),[],includes,deps))

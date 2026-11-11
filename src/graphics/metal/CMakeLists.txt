@@ -145,6 +145,7 @@ add_custom_command(
             ${_metal_dir}/patches/xenia-dxt-rounding.patch
             ${_metal_dir}/patches/xenia-texture-endian.patch
             ${_metal_dir}/patches/xenia-dxt3a-rg16.patch
+            ${_metal_dir}/patches/xenia-hendeca-rgba32f.patch
             ${_metal_helper_wrappers}
     COMMENT "rexgpu-metal: compiling built-in Metal helper shaders"
     VERBATIM

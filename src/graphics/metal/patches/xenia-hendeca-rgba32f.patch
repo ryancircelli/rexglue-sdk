@@ -1,0 +1,216 @@
+--- a/gpu/shaders/pixel_formats.xesli
++++ b/gpu/shaders/pixel_formats.xesli
+@@ -514,6 +514,79 @@
+   out_23 = XeR11G11B10UNormToRGBA16(packed_texels.zw);
+ }
+
++// Convert packed hendeca codes directly to float32 texels. The float
++// representation preserves the exact source-code ratio through Metal sampling.
++uint4_xe XeR10G11B11UNormToRGBA32F(uint packed_texel) {
++  return float_bits_to_uint_xe(
++      float4_xe(packed_texel & 1023u, (packed_texel >> 10u) & 2047u,
++                packed_texel >> 21u, 2047u) *
++      float4_xe(1.0f / 1023.0f, 1.0f / 2047.0f,
++                1.0f / 2047.0f, 1.0f));
++}
++void XeR10G11B11UNormToRGBA32F(
++    uint4_xe packed, out_param_xe(uint4_xe, out_0),
++    out_param_xe(uint4_xe, out_1), out_param_xe(uint4_xe, out_2),
++    out_param_xe(uint4_xe, out_3)) {
++  out_0 = XeR10G11B11UNormToRGBA32F(packed.x);
++  out_1 = XeR10G11B11UNormToRGBA32F(packed.y);
++  out_2 = XeR10G11B11UNormToRGBA32F(packed.z);
++  out_3 = XeR10G11B11UNormToRGBA32F(packed.w);
++}
++uint4_xe XeR11G11B10UNormToRGBA32F(uint packed_texel) {
++  return float_bits_to_uint_xe(
++      float4_xe(packed_texel & 2047u, (packed_texel >> 11u) & 2047u,
++                (packed_texel >> 22u) & 1023u, 1023u) *
++      float4_xe(1.0f / 2047.0f, 1.0f / 2047.0f,
++                1.0f / 1023.0f, 1.0f));
++}
++void XeR11G11B10UNormToRGBA32F(
++    uint4_xe packed, out_param_xe(uint4_xe, out_0),
++    out_param_xe(uint4_xe, out_1), out_param_xe(uint4_xe, out_2),
++    out_param_xe(uint4_xe, out_3)) {
++  out_0 = XeR11G11B10UNormToRGBA32F(packed.x);
++  out_1 = XeR11G11B10UNormToRGBA32F(packed.y);
++  out_2 = XeR11G11B10UNormToRGBA32F(packed.z);
++  out_3 = XeR11G11B10UNormToRGBA32F(packed.w);
++}
++uint4_xe XeR10G11B11SNormToRGBA32F(uint packed_texel) {
++  int r = int(packed_texel << 22u) >> 22;
++  int g = int(packed_texel << 11u) >> 21;
++  int b = int(packed_texel) >> 21;
++  float4_xe codes = float4_xe(r, g, b, 1);
++  codes = max(codes, float4_xe(-511, -1023, -1023, 1));
++  return float_bits_to_uint_xe(
++      codes * float4_xe(1.0f / 511.0f, 1.0f / 1023.0f,
++                        1.0f / 1023.0f, 1.0f));
++}
++void XeR10G11B11SNormToRGBA32F(
++    uint4_xe packed, out_param_xe(uint4_xe, out_0),
++    out_param_xe(uint4_xe, out_1), out_param_xe(uint4_xe, out_2),
++    out_param_xe(uint4_xe, out_3)) {
++  out_0 = XeR10G11B11SNormToRGBA32F(packed.x);
++  out_1 = XeR10G11B11SNormToRGBA32F(packed.y);
++  out_2 = XeR10G11B11SNormToRGBA32F(packed.z);
++  out_3 = XeR10G11B11SNormToRGBA32F(packed.w);
++}
++uint4_xe XeR11G11B10SNormToRGBA32F(uint packed_texel) {
++  int r = int(packed_texel << 21u) >> 21;
++  int g = int(packed_texel << 10u) >> 21;
++  int b = int(packed_texel) >> 22;
++  float4_xe codes = float4_xe(r, g, b, 1);
++  codes = max(codes, float4_xe(-1023, -1023, -511, 1));
++  return float_bits_to_uint_xe(
++      codes * float4_xe(1.0f / 1023.0f, 1.0f / 1023.0f,
++                        1.0f / 511.0f, 1.0f));
++}
++void XeR11G11B10SNormToRGBA32F(
++    uint4_xe packed, out_param_xe(uint4_xe, out_0),
++    out_param_xe(uint4_xe, out_1), out_param_xe(uint4_xe, out_2),
++    out_param_xe(uint4_xe, out_3)) {
++  out_0 = XeR11G11B10SNormToRGBA32F(packed.x);
++  out_1 = XeR11G11B10SNormToRGBA32F(packed.y);
++  out_2 = XeR11G11B10SNormToRGBA32F(packed.z);
++  out_3 = XeR11G11B10SNormToRGBA32F(packed.w);
++}
++
+ // Assuming the original number has only 10 bits.
+ uint2_xe XeSNorm10To16(uint2_xe s10) {
+   uint2_xe signs = s10 >> 9u;
+--- a/gpu/shaders/texture_load_32bpb_64bpb.xesli
++++ b/gpu/shaders/texture_load_32bpb_64bpb.xesli
+@@ -11,6 +11,52 @@
+
+ XE_TEXTURE_LOAD_ENTRY(16)
+ {
++#ifdef XE_TEXTURE_LOAD_32BPB_TO_128BPB
++
++  // 1 thread = 8 packed 32-bit texels converted to eight RGBA32Float texels.
++  XeTextureLoadInfo load_info = XeTextureLoadGetInfo(pass_push_consts_xe);
++  uint3_xe block_index = in_global_thread_id_xe << uint3_xe(3u, 0u, 0u);
++  dont_flatten_xe
++  if (any(greater_than_equal_xe(block_index.xy, load_info.size_blocks.xy))) {
++    return;
++  }
++  uint block_offset_host =
++      load_info.host_offset +
++      uint(XeTextureHostLinearOffset(int3_xe(block_index), load_info.host_pitch,
++                                     load_info.size_blocks.y, 16u));
++  uint block_offset_guest =
++      XeTextureLoadSourceAddress(load_info, block_index, 2u);
++  uint4_xe guest_blocks = XeEndianSwap32(
++      byte_buffer_align16_load16_xe(xe_texture_load_source, block_offset_guest),
++      load_info.endian_32);
++  uint4_xe block_0, block_1, block_2, block_3;
++  XE_TEXTURE_LOAD_32BPB_TO_128BPB(guest_blocks, block_0, block_1, block_2,
++                                   block_3);
++  byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host,
++                                 block_0);
++  byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host + 16u,
++                                 block_1);
++  byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host + 32u,
++                                 block_2);
++  byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host + 48u,
++                                 block_3);
++  block_offset_guest +=
++      XeTextureLoadLocalXAddressXor(4u, 2u, load_info.is_tiled);
++  guest_blocks = XeEndianSwap32(
++      byte_buffer_align16_load16_xe(xe_texture_load_source, block_offset_guest),
++      load_info.endian_32);
++  XE_TEXTURE_LOAD_32BPB_TO_128BPB(guest_blocks, block_0, block_1, block_2,
++                                   block_3);
++  byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host + 64u,
++                                 block_0);
++  byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host + 80u,
++                                 block_1);
++  byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host + 96u,
++                                 block_2);
++  byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host + 112u,
++                                 block_3);
++#else
++
+   // 1 thread = 8 packed 32-bit texels with the externally provided uint4 -> 2x
+   // uint4 function (XE_TEXTURE_LOAD_32BPB_TO_64BPB) for converting to 64bpb -
+   // useful for expansion of hendeca (10:11:11 or 11:11:10) to unorm16/snorm16.
+@@ -45,5 +91,6 @@
+                                  block_offset_host + 0x20u, block_0);
+   byte_buffer_align16_store16_xe(xe_texture_load_dest,
+                                  block_offset_host + 0x30u, block_1);
++#endif
+ }
+ entry_code_end_compute_xe
+--- a/gpu/shaders/texture_load_r10g11b11_rgba16.cs.xesl
++++ b/gpu/shaders/texture_load_r10g11b11_rgba16.cs.xesl
+@@ -8,5 +8,5 @@
+  */
+
+ #include "pixel_formats.xesli"
+-#define XE_TEXTURE_LOAD_32BPB_TO_64BPB XeR10G11B11UNormToRGBA16
++#define XE_TEXTURE_LOAD_32BPB_TO_128BPB XeR10G11B11UNormToRGBA32F
+ #include "texture_load_32bpb_64bpb.xesli"
+--- a/gpu/shaders/texture_load_r10g11b11_rgba16_scaled.cs.xesl
++++ b/gpu/shaders/texture_load_r10g11b11_rgba16_scaled.cs.xesl
+@@ -9,5 +9,5 @@
+
+ #define XE_TEXTURE_LOAD_RESOLUTION_SCALED
+ #include "pixel_formats.xesli"
+-#define XE_TEXTURE_LOAD_32BPB_TO_64BPB XeR10G11B11UNormToRGBA16
++#define XE_TEXTURE_LOAD_32BPB_TO_128BPB XeR10G11B11UNormToRGBA32F
+ #include "texture_load_32bpb_64bpb.xesli"
+--- a/gpu/shaders/texture_load_r10g11b11_rgba16_snorm.cs.xesl
++++ b/gpu/shaders/texture_load_r10g11b11_rgba16_snorm.cs.xesl
+@@ -8,5 +8,5 @@
+  */
+
+ #include "pixel_formats.xesli"
+-#define XE_TEXTURE_LOAD_32BPB_TO_64BPB XeR10G11B11SNormToRGBA16
++#define XE_TEXTURE_LOAD_32BPB_TO_128BPB XeR10G11B11SNormToRGBA32F
+ #include "texture_load_32bpb_64bpb.xesli"
+--- a/gpu/shaders/texture_load_r10g11b11_rgba16_snorm_scaled.cs.xesl
++++ b/gpu/shaders/texture_load_r10g11b11_rgba16_snorm_scaled.cs.xesl
+@@ -9,5 +9,5 @@
+
+ #define XE_TEXTURE_LOAD_RESOLUTION_SCALED
+ #include "pixel_formats.xesli"
+-#define XE_TEXTURE_LOAD_32BPB_TO_64BPB XeR10G11B11SNormToRGBA16
++#define XE_TEXTURE_LOAD_32BPB_TO_128BPB XeR10G11B11SNormToRGBA32F
+ #include "texture_load_32bpb_64bpb.xesli"
+--- a/gpu/shaders/texture_load_r11g11b10_rgba16.cs.xesl
++++ b/gpu/shaders/texture_load_r11g11b10_rgba16.cs.xesl
+@@ -8,5 +8,5 @@
+  */
+
+ #include "pixel_formats.xesli"
+-#define XE_TEXTURE_LOAD_32BPB_TO_64BPB XeR11G11B10UNormToRGBA16
++#define XE_TEXTURE_LOAD_32BPB_TO_128BPB XeR11G11B10UNormToRGBA32F
+ #include "texture_load_32bpb_64bpb.xesli"
+--- a/gpu/shaders/texture_load_r11g11b10_rgba16_scaled.cs.xesl
++++ b/gpu/shaders/texture_load_r11g11b10_rgba16_scaled.cs.xesl
+@@ -9,5 +9,5 @@
+
+ #define XE_TEXTURE_LOAD_RESOLUTION_SCALED
+ #include "pixel_formats.xesli"
+-#define XE_TEXTURE_LOAD_32BPB_TO_64BPB XeR11G11B10UNormToRGBA16
++#define XE_TEXTURE_LOAD_32BPB_TO_128BPB XeR11G11B10UNormToRGBA32F
+ #include "texture_load_32bpb_64bpb.xesli"
+--- a/gpu/shaders/texture_load_r11g11b10_rgba16_snorm.cs.xesl
++++ b/gpu/shaders/texture_load_r11g11b10_rgba16_snorm.cs.xesl
+@@ -8,5 +8,5 @@
+  */
+
+ #include "pixel_formats.xesli"
+-#define XE_TEXTURE_LOAD_32BPB_TO_64BPB XeR11G11B10SNormToRGBA16
++#define XE_TEXTURE_LOAD_32BPB_TO_128BPB XeR11G11B10SNormToRGBA32F
+ #include "texture_load_32bpb_64bpb.xesli"
+--- a/gpu/shaders/texture_load_r11g11b10_rgba16_snorm_scaled.cs.xesl
++++ b/gpu/shaders/texture_load_r11g11b10_rgba16_snorm_scaled.cs.xesl
+@@ -9,5 +9,5 @@
+
+ #define XE_TEXTURE_LOAD_RESOLUTION_SCALED
+ #include "pixel_formats.xesli"
+-#define XE_TEXTURE_LOAD_32BPB_TO_64BPB XeR11G11B10SNormToRGBA16
++#define XE_TEXTURE_LOAD_32BPB_TO_128BPB XeR11G11B10SNormToRGBA32F
+ #include "texture_load_32bpb_64bpb.xesli"

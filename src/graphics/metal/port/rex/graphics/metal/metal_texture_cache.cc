@@ -1927,8 +1927,7 @@ MTL::PixelFormat MetalTextureCache::GetPixelFormatForKey(TextureKey key) const {
       return MTL::PixelFormatRGB10A2Unorm;
     case xenos::TextureFormat::k_10_11_11:
     case xenos::TextureFormat::k_11_11_10:
-      return key.signed_separate ? MTL::PixelFormatRGBA16Snorm
-                                 : MTL::PixelFormatRGBA16Unorm;
+      return MTL::PixelFormatRGBA32Float;
 
     case xenos::TextureFormat::k_16:
       if (key.signed_separate) {

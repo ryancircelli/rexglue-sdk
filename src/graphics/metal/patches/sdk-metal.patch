@@ -19674,10 +19674,10 @@
 +        {8, 3},   // kGBGR8ToRGB8
 +        {4, 3},   // kBGRG8ToRGBG8
 +        {8, 3},   // kBGRG8ToRGB8
-+        {8, 3},   // kR10G11B11ToRGBA16
-+        {8, 3},   // kR10G11B11ToRGBA16SNorm
-+        {8, 3},   // kR11G11B10ToRGBA16
-+        {8, 3},   // kR11G11B10ToRGBA16SNorm
++        {16, 3},  // kR10G11B11ToRGBA16
++        {16, 3},  // kR10G11B11ToRGBA16SNorm
++        {16, 3},  // kR11G11B10ToRGBA16
++        {16, 3},  // kR11G11B10ToRGBA16SNorm
 +        {2, 4},   // kR16UNormToFloat
 +        {2, 4},   // kR16SNormToFloat
 +        {4, 3},   // kRG16UNormToFloat

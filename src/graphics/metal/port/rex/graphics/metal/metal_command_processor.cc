@@ -9079,11 +9079,20 @@ bool MetalCommandProcessor::SubmitPreparedDraw(
   // snapshot taken here, when the draw executes: has_invalid_shared_memory
   // is from prepare time, and a CPU write since then would otherwise leave a
   // stale buffer that the readback copies over guest RAM.
-  const bool memexport_invalid_now =
+  // The draw's other ranges (the copy shader's vfetch source) get the same
+  // execute-time check: a stale source is exported as-is.
+  bool memexport_invalid_now =
       !draw.memexport_ranges.empty() &&
       RecheckMemexportRangesForExecute(
           draw.memexport_ranges.data(),
           uint32_t(draw.memexport_ranges.size()));
+  if (!memexport_invalid_now && !draw.memexport_ranges.empty() &&
+      MetalSharedMemory::MemexportExecArmEnabled() && shared_memory_ &&
+      !draw.materialization_ranges.empty()) {
+    memexport_invalid_now = AnySharedMemoryRangeInvalid(
+        draw.materialization_ranges.data(),
+        uint32_t(draw.materialization_ranges.size()));
+  }
   if ((draw.has_invalid_shared_memory || memexport_invalid_now) &&
       shared_memory_ && !draw.materialization_ranges.empty()) {
     PrepareSharedMemoryUploadBeforeDrawPass(

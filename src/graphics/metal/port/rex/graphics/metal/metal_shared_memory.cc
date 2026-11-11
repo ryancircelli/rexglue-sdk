@@ -393,8 +393,12 @@ void MetalSharedMemory::ApplyCompletedMemexportReadbacks(
     const uint32_t page = 1u << page_size_log2();
     uint32_t p = e.start & ~(page - 1);
     while (p < e.end) {
-      const uint32_t s = std::max(p, e.start);
-      const uint32_t t = std::min(p + page, e.end);
+      // RangeWrittenByGpu validates guest pages, not only the declared byte
+      // interval. Compare the whole guest page so a CPU write to a neighbor
+      // byte cannot remain stale in the shared buffer while this export marks
+      // the page valid again.
+      const uint32_t s = p;
+      const uint32_t t = std::min(p + page, kBufferSize);
       bool later = false;
       for (size_t j = first_pending; j < pending_readbacks_.size(); ++j) {
         const PendingReadback& l = pending_readbacks_[j];
@@ -478,6 +482,7 @@ void MetalSharedMemory::ApplyCompletedMemexportReadbacks(
     } else {
       guest_changed = std::memcmp(guest + e.start, gpu + e.start, len) != 0;
       std::memcpy(guest + e.start, gpu + e.start, len);
+      collect_stale(e, done);
     }
     if (guest_changed && MemexportReadbackWatchEnabled()) {
       fire_ranges.emplace_back(e.start, len);

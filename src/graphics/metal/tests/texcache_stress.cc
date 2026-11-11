@@ -1307,6 +1307,45 @@ void StaleReadbackScenario(const char* name, const TexDesc& d, Sr mode,
   g_expected_base = nullptr;
 }
 
+// CPU-written bytes outside an export's byte range can still share a 4 KiB
+// guest page with it. RangeWrittenByGpu validates the whole page; stale
+// readback invalidation must compare that whole page, not just export bytes.
+void StaleReadbackNeighborScenario(const char* name, const TexDesc& d) {
+  Region base = Alloc(256 * 1024);
+  xe_gpu_texture_fetch_t f = MakeFetch(d, base.phys, 0);
+  Extents e = GetExtents(f);
+  const uint32_t blen = (e.base + 0xFFF) & ~0xFFFu;
+  std::vector<uint8_t> expected = Pattern(base.size, 310);
+  Seed(base, 0, expected);
+  g_acc->MakeResident(base.phys, blen);
+  g_acc->Materialize(f);
+  g_acc->Flush();
+
+  const std::vector<uint8_t> b = Pattern(0x800, 311);
+  std::copy(b.begin(), b.end(), expected.begin());
+  const std::vector<uint8_t> x = Pattern(0x400, 312);
+  std::copy(x.begin(), x.end(), expected.begin() + 0x800);
+  const auto between = [&]() {
+    GuestWrite(base, 0, b);  // after upload, outside export but same guest page
+  };
+  if (!g_acc->MemexportGpuPartial(base.phys + 0x800, 0x800, 0, x, true, between)) {
+    std::printf("HARNESS scenario %s: memexport failed\n", name);
+    ++g_harness_errors;
+    return;
+  }
+  g_acc->Flush();
+  g_acc->ProcessCompletions();
+  std::vector<uint8_t> g;
+  ReadGuest(base, 0, blen, g);
+  if (!std::equal(g.begin(), g.end(), expected.begin())) {
+    std::printf("FAIL scenario %s: neighbor CPU bytes outside the declared export were lost\n", name);
+    ++g_failures;
+  }
+  g_expected_base = &expected;
+  Verify(name, d, base, nullptr);
+  g_expected_base = nullptr;
+}
+
 // Stale copy SOURCE (manager follow-up, 2026-11-10): a memexport copy draw
 // (the game's texture MOVE) reads a source block whose guest bytes the CPU
 // rewrote (S_old -> S_new) but which was never uploaded, and writes it into a
@@ -1577,6 +1616,7 @@ int main(int argc, char** argv) {
       {"stale_readback_part_page_pending_upload", [](const char* n) { StaleReadbackScenario(n, kDxt1_128, Sr::kBeforeDrawPendingUpload, true); }},
       {"stale_readback_part_page_no_upload", [](const char* n) { StaleReadbackScenario(n, kDxt1_128, Sr::kBeforeDrawNoUpload, true); }},
       {"stale_readback_part_page_during_encode", [](const char* n) { StaleReadbackScenario(n, kDxt1_128, Sr::kDuringEncode, true); }},
+      {"stale_readback_neighbor_same_page", [](const char* n) { StaleReadbackNeighborScenario(n, kDxt1_128); }},
       // 8e. Stale copy source: a memexport copy reads a CPU-rewritten,
       // not-uploaded source into a valid destination.
       {"stale_source_copy_full", [](const char* n) { StaleSourceScenario(n, kDxt1_128, false, false); }},

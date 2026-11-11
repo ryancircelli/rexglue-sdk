@@ -1,0 +1,42 @@
+--- a/gpu/shaders/texture_load_8bpb.xesli
++++ b/gpu/shaders/texture_load_8bpb.xesli
+@@ -24,14 +24,16 @@
+                                      load_info.size_blocks.y, 1u));
+   uint block_offset_guest =
+       XeTextureLoadSourceAddress(load_info, block_index, 0u);
+-  byte_buffer_align16_store16_xe(
+-      xe_texture_load_dest, block_offset_host,
++  uint4_xe guest_blocks = XeEndianSwap32(
+       uint4_xe(
+           byte_buffer_align8_load8_xe(xe_texture_load_source,
+                                       block_offset_guest),
+           byte_buffer_align8_load8_xe(
+               xe_texture_load_source,
+               block_offset_guest +
+-                  XeTextureLoadLocalXAddressXor(8u, 0u, load_info.is_tiled))));
++                  XeTextureLoadLocalXAddressXor(8u, 0u, load_info.is_tiled))),
++      load_info.endian_32);
++  byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host,
++                                 guest_blocks);
+ }
+ entry_code_end_compute_xe
+--- a/gpu/shaders/texture_load_16bpb.xesli
++++ b/gpu/shaders/texture_load_16bpb.xesli
+@@ -25,7 +25,7 @@
+                                      load_info.size_blocks.y, 2u));
+   uint block_offset_guest =
+       XeTextureLoadSourceAddress(load_info, block_index, 1u);
+-  uint4_xe guest_blocks = XeEndianSwap16(
++  uint4_xe guest_blocks = XeEndianSwap32(
+       byte_buffer_align16_load16_xe(xe_texture_load_source, block_offset_guest),
+       load_info.endian_32);
+   byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host,
+@@ -33,7 +33,7 @@
+   block_offset_host += 16u;
+   block_offset_guest +=
+       XeTextureLoadLocalXAddressXor(8u, 1u, load_info.is_tiled);
+-  guest_blocks = XeEndianSwap16(
++  guest_blocks = XeEndianSwap32(
+       byte_buffer_align16_load16_xe(xe_texture_load_source, block_offset_guest),
+       load_info.endian_32);
+   byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host,

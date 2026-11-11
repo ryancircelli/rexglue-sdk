@@ -35,6 +35,7 @@ xenia=xenios_root/'src/xenia'
 # BC load shaders are compiled from a patched copy of the Xenia shader tree.
 metal_dir=Path(__file__).resolve().parents[1]
 dxt_patch=metal_dir/'patches/xenia-dxt-rounding.patch'
+endian_patch=metal_dir/'patches/xenia-texture-endian.patch'
 overlay=root/'xenia-shaders'
 bc_shaders={
  'texture_load_dxt1_rgba8.cs.xesl',
@@ -58,12 +59,13 @@ def prepare_overlay():
   if dst.exists():shutil.rmtree(dst)
   dst.parent.mkdir(parents=True,exist_ok=True)
   shutil.copytree(src,dst)
- result=subprocess.run(
-  [patch_tool,'--batch','--no-backup-if-mismatch','-p1','-i',str(dxt_patch)],
-  cwd=overlay,capture_output=True,text=True)
- if result.returncode:
-  raise SystemExit('compile_metal_helpers.py: '+str(dxt_patch)+' does not apply:\n'+
-                   result.stdout+result.stderr)
+ for shader_patch in (dxt_patch,endian_patch):
+  result=subprocess.run(
+   [patch_tool,'--batch','--no-backup-if-mismatch','-p1','-i',str(shader_patch)],
+   cwd=overlay,capture_output=True,text=True)
+  if result.returncode:
+   raise SystemExit('compile_metal_helpers.py: '+str(shader_patch)+' does not apply:\n'+
+                    result.stdout+result.stderr)
 
 prepare_overlay()
 
@@ -76,13 +78,20 @@ for area in ['gpu','ui']:
    # any include the copy does not carry.
    jobs.append(('gpu',overlay/'gpu/shaders'/p.name,p.stem.replace('.','_'),[],
                 [xenia/'gpu/shaders'],
-                [dxt_patch,
+                [dxt_patch,endian_patch,
                  xenia/'gpu/shaders/pixel_formats.xesli',
                  xenia/'gpu/shaders/texture_load.xesli',
                  xenia/'gpu/shaders/texture_load_dxt3aas1111.xesli',
                  p]))
   else:
-   jobs.append((area,p,p.stem.replace('.','_'),[]))
+   deps=[p]
+   shader_source=p
+   includes=[]
+   if area=='gpu' and p.name.startswith('texture_load_'):
+    deps.append(endian_patch)
+    shader_source=overlay/'gpu/shaders'/p.name
+    includes=[overlay/'gpu/shaders',xenia/'gpu/shaders']
+   jobs.append((area,shader_source,p.stem.replace('.','_'),[],includes,deps))
 for uint in [0,1]:
  for full,bpps in [(False,[32,64]),(True,[8,16,32,64,128])]:
   for bpp in bpps:
@@ -105,7 +114,7 @@ jobs.append(('gpu',xenia/'gpu/shaders/texture_upload_repack.metal','texture_uplo
 # (tracked wrapper around the unmodified XeniOS sources; rebuilt when it changes).
 wrapper=Path(__file__).resolve().parents[1]/'shaders/texture_load_dest_texture.metal'
 for p in sorted((xenia/'gpu/shaders').glob('texture_load_*_scaled.cs.xesl')):
- jobs.append(('gpu',wrapper,p.name[:-len('.cs.xesl')]+'_tex_cs',[f'XE_TEX_LOAD_SOURCE="{p.name}"'],[xenia/'gpu/shaders']))
+ jobs.append(('gpu',wrapper,p.name[:-len('.cs.xesl')]+'_tex_cs',[f'XE_TEX_LOAD_SOURCE="{p.name}"'],[overlay/'gpu/shaders',xenia/'gpu/shaders'],[wrapper,p,endian_patch]))
 # [resolve-to-texture] scaled host resolves that also write the sampled texture
 # (tracked wrapper around the unmodified XeniOS resolve entries).
 rtt_wrapper=Path(__file__).resolve().parents[1]/'shaders/resolve_dest_texture.metal'

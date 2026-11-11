@@ -276,6 +276,41 @@ int TestSample() {
   return failures;
 }
 
+// GPUSIGN bias and gamma are applied by the shader after a texture sample,
+// including for formats whose stored components are already floating point.
+int TestFloatFetchSigns() {
+  constexpr uint32_t w = 1, h = 1, base = 0x10000;
+  uint32_t d[6];
+  MakeFetch(k_32_32_32_32_FLOAT, w, h, base, d);
+  d[0] |= (kBias << 2) | (kGamma << 4) | (kBias << 6) | (kGamma << 8);
+
+  const float input[4] = {0.25f, 0.5f, -0.5f, 2.0f};
+  std::vector<uint8_t> bytes(32 * 16, 0);
+  std::memcpy(bytes.data(), input, sizeof(input));
+  RangeMemory mem;
+  mem.Add(base, bytes);
+  Fetch f = Fetch::Parse(d);
+  DecodedTexels decoded;
+  Diag diag;
+  if (!DecodeLevel(f, mem, 0, 0, &decoded, &diag)) {
+    std::printf("float signs: decode failed: %s\n", diag.error.c_str());
+    return 1;
+  }
+  const float expected[4] = {
+      std::fma(input[0], 2.0f, -1.0f), PWLGammaToLinear(input[1]),
+      std::fma(input[2], 2.0f, -1.0f), PWLGammaToLinear(input[3])};
+  int failures = 0;
+  for (int c = 0; c < 4; ++c) {
+    if (decoded.rgba[c] != expected[c]) {
+      std::printf("float signs: .%c got %.9g expected %.9g\n", "xyzw"[c],
+                  decoded.rgba[c], expected[c]);
+      ++failures;
+    }
+  }
+  std::printf("float signs: %d mismatches\n", failures);
+  return failures;
+}
+
 }  // namespace
 
 int main() {
@@ -285,6 +320,7 @@ int main() {
   if (bc) std::printf("BC: %d disagreements larger than 1/255\n", bc);
   f += bc;
   f += TestSample();
+  f += TestFloatFetchSigns();
   {
     size_t n = 0;
     const RuleInfo* rules = GetRules(&n);

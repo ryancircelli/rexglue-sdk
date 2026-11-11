@@ -1831,7 +1831,7 @@ TextureCache::LoadShaderIndex MetalTextureCache::GetLoadShaderIndexForKey(
     case xenos::TextureFormat::k_DXT5A:
       return kLoadShaderIndexDXT5AToR8;
     case xenos::TextureFormat::k_DXT3A_AS_1_1_1_1:
-      return kLoadShaderIndexDXT3AAs1111ToARGB4;
+      return kLoadShaderIndexDXT3AAs1111ToBGRA4;
     case xenos::TextureFormat::k_CTX1:
       return kLoadShaderIndexCTX1;
 
@@ -5248,6 +5248,21 @@ uint32_t MetalTextureCache::GetHostFormatSwizzle(TextureKey key) const {
     case xenos::TextureFormat::k_Cr_Y1_Cb_Y0_REP:
     case xenos::TextureFormat::k_Y1_Cr_Y0_Cb_REP:
       return xenos::XE_GPU_TEXTURE_SWIZZLE_RGBB;
+
+    case xenos::TextureFormat::k_4_4_4_4:
+      // MTLPixelFormatABGR4Unorm maps the packed red and blue nibbles in the
+      // opposite order from the Xenos RGBA4 fetch layout.
+      return XE_GPU_MAKE_TEXTURE_SWIZZLE(B, G, R, A);
+
+    case xenos::TextureFormat::k_DXT3A_AS_1_1_1_1:
+      // The DXT3A-as-1111 load shader's BGRA4 intermediate has G and A
+      // reversed when sampled through MTLPixelFormatABGR4Unorm.
+      return XE_GPU_MAKE_TEXTURE_SWIZZLE(R, A, B, G);
+
+    case xenos::TextureFormat::k_CTX1:
+      // The load shader expands CTX1 to RG8. Xenos replicates the last
+      // existing component into B and A; Metal's RG8 view supplies (0, 1).
+      return xenos::XE_GPU_TEXTURE_SWIZZLE_RGGG;
 
     case xenos::TextureFormat::k_6_5_5:
       // On the host, green bits in blue, blue bits in green.

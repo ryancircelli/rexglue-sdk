@@ -877,6 +877,10 @@ float UNorm(uint32_t raw, uint32_t bits) {
 }
 
 float SNorm(uint32_t raw, uint32_t bits) {
+  // A one-bit signed component has only 0 and -1 encodings. The general
+  // SNORM denominator is zero for this width, and hardware maps the sign bit
+  // directly to -1.
+  if (bits == 1) return (raw & 1u) ? -1.0f : 0.0f;
   int64_t s = (raw & (1ull << (bits - 1))) ? int64_t(raw) - (int64_t(1) << bits)
                                             : int64_t(raw);
   float v = bits > 24 ? float(double(s) / double((1ull << (bits - 1)) - 1))
@@ -916,7 +920,21 @@ float PWLGammaToLinear(float gamma) {
 // Per-component value under the fetch's sign / number format.
 static float ComponentValue(const Fetch& f, uint32_t base_format,
                             const Comp& c, uint32_t sign, Diag* diag) {
-  if (c.is_float) return c.f;
+  if (c.is_float) {
+    // GPUSIGN bias and gamma are applied by the shader after the texture
+    // sample, regardless of whether the stored component is fixed or float.
+    // Signed float views preserve the float value; only bias/gamma transform
+    // it.
+    if (sign == kBias) {
+      diag->Use("sign.bias");
+      return std::fma(c.f, 2.0f, -1.0f);
+    }
+    if (sign == kGamma) {
+      diag->Use("sign.gamma");
+      return PWLGammaToLinear(c.f);
+    }
+    return c.f;
+  }
   if (f.num_format_integer) {
     diag->Use("num.integer");
     if (sign == kSigned) {

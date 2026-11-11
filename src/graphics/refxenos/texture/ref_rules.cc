@@ -62,10 +62,10 @@ static const RuleInfo kRules[] = {
      "Signed n-bit fraction = max(v / (2^(n-1) - 1), -1) (zero-clamp-minus-"
      "one; the most negative code also maps to -1).",
      "SDK include/rex/graphics/xenos.h:1176-1182 (R400 doc change 133990)"},
-    {"sign.bias", 1, RuleStatus::kDocumented,
+    {"sign.bias", 2, RuleStatus::kDocumented,
      "GPUSIGN_BIAS: 2 * x - 1 on the unsigned value.",
      "XDK GPUSIGN.htm; SDK spirv_translator_fetch.cpp:1995-2001"},
-    {"sign.gamma", 1, RuleStatus::kXenia,
+    {"sign.gamma", 2, RuleStatus::kXenia,
      "GPUSIGN_GAMMA: piecewise-linear gamma to linear on the unsigned value.",
      "SDK src/graphics/xenos.cpp:27-68 PWLGammaToLinear; "
      "spirv_translator_fetch.cpp:2002-2008"},

@@ -141,11 +141,28 @@ add_custom_command(
     COMMAND ${Python3_EXECUTABLE} -I ${_metal_dir}/tools/compile_metal_helpers.py
             ${_xenios} ${_metal_gen} 8
     COMMAND ${CMAKE_COMMAND} -E touch ${_metal_helpers_stamp}
-    DEPENDS ${_metal_dir}/tools/compile_metal_helpers.py ${_metal_helper_wrappers}
+    DEPENDS ${_metal_dir}/tools/compile_metal_helpers.py
+            ${_metal_dir}/patches/xenia-dxt-rounding.patch
+            ${_metal_dir}/patches/xenia-texture-endian.patch
+            ${_metal_helper_wrappers}
     COMMENT "rexgpu-metal: compiling built-in Metal helper shaders"
     VERBATIM
 )
 add_custom_target(rexgpu-metal-helpers DEPENDS ${_metal_helpers_stamp})
+
+# The helper headers are generated outputs behind one stamp, so Ninja can't
+# infer that their consumers need recompiling after the helper command runs.
+# Make the stamp an object dependency to avoid linking stale metallib arrays.
+set(_metal_helper_consumers
+    port/rex/graphics/metal/metal_texture_cache.cc
+    port/rex/graphics/metal/metal_tile_resolve.cc
+    port/rex/graphics/metal/metal_command_processor.cc
+    port/rex/graphics/metal/metal_render_target_cache.cc
+    port/rex/graphics/metal/metal_resolve_to_texture.cc
+    port/rex/graphics/metal/metal_direct_host_resolve.cc
+)
+set_source_files_properties(${_metal_helper_consumers}
+    PROPERTIES OBJECT_DEPENDS "${_metal_helpers_stamp}")
 
 # ---------------------------------------------------------------------------
 # 4. The plugin

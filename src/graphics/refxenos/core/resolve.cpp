@@ -13,9 +13,10 @@
 namespace refxenos {
 using namespace rex::graphics;  // XE_GPU_REG_* register indices
 
-RX_DEFINE_RULE(resolve_rectangle_and_scissor, 1,
+RX_DEFINE_RULE(resolve_rectangle_and_scissor, 2,
                "xenia-canary@cf206a3b src/xenia/gpu/draw_util.cc:1226-1384 "
-               "(three k_32_32_FLOAT vertices, top-left bounds, scissor, 8-pixel expansion)",
+               "(three k_32_32_FLOAT vertices loaded as GPU little-endian dwords before "
+               "fetch-endian swap; top-left bounds, scissor, 8-pixel expansion)",
                false, "");
 RX_DEFINE_RULE(resolve_sample_select_sanitize, 1,
                "xenia-canary@cf206a3b src/xenia/gpu/draw_util.cc:1138-1178,1386-1402",
@@ -432,6 +433,13 @@ void ApplyEndian(std::array<uint8_t, 16>& bytes, uint32_t size, xenos::Endian128
 
 uint32_t Align32(uint32_t value) { return (value + 31u) & ~31u; }
 
+uint32_t ReadGpuDword(const Memory& memory, uint32_t physical) {
+  uint8_t bytes[4];
+  memory.Read(physical, bytes, sizeof(bytes));
+  return uint32_t(bytes[0]) | (uint32_t(bytes[1]) << 8) |
+         (uint32_t(bytes[2]) << 16) | (uint32_t(bytes[3]) << 24);
+}
+
 uint32_t TiledAddress(uint32_t x, uint32_t y, uint32_t z, bool array,
                       uint32_t pitch, uint32_t height, uint32_t bytes) {
   RX_USE(resolve_tiled_destination);
@@ -471,7 +479,7 @@ bool Resolve(const RegisterFile& regs, Edram& edram, Memory& memory,
                          : 0.0f;
   int32_t fixed[6];
   for (uint32_t i = 0; i < 6; ++i) {
-    uint32_t bits = memory.ReadU32BE(fetch.address * 4 + i * 4);
+    uint32_t bits = ReadGpuDword(memory, fetch.address * 4 + i * 4);
     float value = AsF32(xenos::GpuSwap(bits, fetch.endian));
     fixed[i] = int32_t(std::lround((value + half_pixel) * 256.0f));
   }

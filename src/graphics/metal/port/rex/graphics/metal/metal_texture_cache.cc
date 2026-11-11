@@ -99,9 +99,11 @@ void TexTrace(const char* name) {
 #include "rex/graphics/shaders/bytecode/metal/texture_load_bgrg8_rgbg8_cs.h"
 #include "rex/graphics/shaders/bytecode/metal/texture_load_ctx1_cs.h"
 #include "rex/graphics/shaders/bytecode/metal/texture_load_depth_float_cs.h"
+#include "rex/graphics/shaders/bytecode/metal/texture_load_depth_snorm_cs.h"
 #include "rex/graphics/shaders/bytecode/metal/texture_load_depth_float_scaled_cs.h"
 #include "rex/graphics/shaders/bytecode/metal/texture_load_depth_unorm_cs.h"
 #include "rex/graphics/shaders/bytecode/metal/texture_load_depth_unorm_scaled_cs.h"
+#include "rex/graphics/shaders/bytecode/metal/texture_load_depth_snorm_scaled_cs.h"
 #include "rex/graphics/shaders/bytecode/metal/texture_load_dxn_rg8_cs.h"
 #include "rex/graphics/shaders/bytecode/metal/texture_load_dxt1_rgba8_cs.h"
 #include "rex/graphics/shaders/bytecode/metal/texture_load_dxt3_rgba8_cs.h"
@@ -1836,7 +1838,8 @@ TextureCache::LoadShaderIndex MetalTextureCache::GetLoadShaderIndexForKey(
       return kLoadShaderIndexCTX1;
 
     case xenos::TextureFormat::k_24_8:
-      return kLoadShaderIndexDepthUnorm;
+      return key.signed_separate ? kLoadShaderIndexDepthSNorm
+                                 : kLoadShaderIndexDepthUnorm;
     case xenos::TextureFormat::k_24_8_FLOAT:
       return kLoadShaderIndexDepthFloat;
 
@@ -3916,6 +3919,12 @@ bool MetalTextureCache::InitializeLoadPipelines() {
   init_pipeline_scaled(TextureCache::kLoadShaderIndexDepthFloat,
                        texture_load_depth_float_scaled_cs_metallib,
                        sizeof(texture_load_depth_float_scaled_cs_metallib));
+  init_pipeline(TextureCache::kLoadShaderIndexDepthSNorm,
+                texture_load_depth_snorm_cs_metallib,
+                sizeof(texture_load_depth_snorm_cs_metallib));
+  init_pipeline_scaled(TextureCache::kLoadShaderIndexDepthSNorm,
+                       texture_load_depth_snorm_scaled_cs_metallib,
+                       sizeof(texture_load_depth_snorm_scaled_cs_metallib));
 
   if (TexLoadDirectEnabled()) {
   defer(load_pipelines_scaled_tex_[TextureCache::kLoadShaderIndex8bpb],
@@ -5297,6 +5306,8 @@ bool MetalTextureCache::IsSignedVersionSeparateForFormat(TextureKey key) const {
              rgba16_selection_.signed_uses_float;
     case xenos::TextureFormat::k_10_11_11:
     case xenos::TextureFormat::k_11_11_10:
+      return true;
+    case xenos::TextureFormat::k_24_8:
       return true;
     default:
       return false;

@@ -1,0 +1,14 @@
+/** Signed 24-bit depth texture materialization for Metal. */
+
+#include "pixel_formats.xesli"
+
+float4_xe XeSNorm24To32(uint4_xe n24) {
+  int4_xe signed_codes = int4_xe(n24);
+  signed_codes = (signed_codes << 8) >> 8;
+  signed_codes = max(signed_codes, int4_xe(-8388607));
+  return float4_xe(signed_codes) * (1.0f / 8388607.0f);
+}
+
+#define XE_TEXTURE_LOAD_32BPB_TRANSFORM(blocks) \
+  float_bits_to_uint_xe(XeSNorm24To32((blocks) >> 8u))
+#include "texture_load_32bpb.xesli"

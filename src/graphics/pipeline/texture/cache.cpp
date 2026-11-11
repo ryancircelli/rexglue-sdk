@@ -202,6 +202,8 @@ const TextureCache::LoadShaderInfo TextureCache::load_shader_info_[kLoadShaderCo
     {4, 4, 4, 3},
     // kDepthFloat
     {4, 4, 4, 3},
+    // kDepthSNorm
+    {4, 4, 4, 3},
 };
 
 TextureCache::TextureCache(const RegisterFile& register_file, SharedMemory& shared_memory,

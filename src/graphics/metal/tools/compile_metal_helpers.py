@@ -152,6 +152,14 @@ for full,bpp,uint in tile_variants:
     defines=[f'{prefix}_BPP={bpp}',f'XE_RESOLVE_HOST_COLOR_MSAA_SAMPLES={msaa}',f'XE_RESOLVE_HOST_COLOR_SOURCE_UINT={uint}']
     if scaled:defines.append('XE_RESOLVE_RESOLUTION_SCALED=1')
     jobs.append(('gpu',tile_wrapper,name,defines,[xenia/'gpu/shaders'],tile_deps))
+# Signed 24-bit depth loads materialize clamped SNORM values in R32Float.
+depth_snorm=metal_dir/'shaders/texture_load_depth_snorm.cs.xesl'
+depth_snorm_scaled=metal_dir/'shaders/texture_load_depth_snorm_scaled.cs.xesl'
+jobs.append(('gpu',depth_snorm,'texture_load_depth_snorm_cs',[],
+             [xenia/'gpu/shaders'],[depth_snorm,endian_patch]))
+jobs.append(('gpu',depth_snorm_scaled,'texture_load_depth_snorm_scaled_cs',[],
+             [xenia/'gpu/shaders'],[depth_snorm_scaled,endian_patch]))
+
 def compile(job):
  area,source,name,defines=job[:4]
  includes=job[4] if len(job)>4 else []

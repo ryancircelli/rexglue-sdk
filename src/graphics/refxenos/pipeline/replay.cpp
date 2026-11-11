@@ -244,6 +244,8 @@ int RunReplay(int argc, char** argv) {
                      trace.title_id(), full))
       throw std::runtime_error("cannot open output");
     std::filesystem::path dir(out_path);
+    if (!shader_rop && (count || ps_hash || frame_filter))
+      std::ofstream(dir / "history-failures.txt", std::ios::trunc);
     bool all_ok = true;
     uint32_t selected = 0;
     std::set<uint64_t> dumped;
@@ -413,6 +415,16 @@ int RunReplay(int argc, char** argv) {
           }
           info.succeeded = draw_ok;
           all_ok &= draw_ok;
+          if (!draw_ok && !shader_rop && (count || ps_hash || frame_filter)) {
+            std::ofstream failures(dir / "history-failures.txt", std::ios::app);
+            failures << "frame " << d.frame << " draw " << d.draw_index << " packet "
+                     << d.packet_index << " VS "
+                     << std::format("{:016X}", info.vs_hash.value_or(0)) << " PS "
+                     << std::format("{:016X}", info.ps_hash.value_or(0))
+                     << (d.is_resolve ? " resolve" : " draw") << "\n";
+            for (const auto& note : stats.notes)
+              failures << "  " << note << "\n";
+          }
           if (emit)
             writer.BeginDraw(info, regs);
           if (emit && w && h && !d.is_resolve) {

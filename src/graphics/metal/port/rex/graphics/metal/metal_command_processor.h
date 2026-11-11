@@ -1086,9 +1086,13 @@ class MetalCommandProcessor final : public CommandProcessor {
   bool AnySharedMemoryRangeInvalid(const SharedMemory::Range* ranges,
                                    uint32_t range_count) const;
   // [memexport-exec-arm] arms the readback snapshots of a memexport draw's
-  // ranges and returns whether any of them is invalid now (execute time).
+  // export ranges and returns whether any of them, or (memexport-exec-source)
+  // any of the draw's other shared-memory ranges, is invalid now (execute
+  // time).
   bool RecheckMemexportRangesForExecute(const draw_util::MemExportRange* ranges,
-                                        uint32_t count);
+                                        uint32_t count,
+                                        const SharedMemory::Range* draw_ranges,
+                                        uint32_t draw_range_count);
   void RecordSharedMemoryLazyUploadRoute(
       const MetalSharedMemory::UploadRouteInfo& route_info,
       bool render_encoder_active);

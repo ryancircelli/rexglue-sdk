@@ -9024,7 +9024,8 @@ MetalCommandProcessor::AcquireResourceSetScratch(RenderResourceSet& fallback) {
 }
 
 bool MetalCommandProcessor::RecheckMemexportRangesForExecute(
-    const draw_util::MemExportRange* ranges, uint32_t count) {
+    const draw_util::MemExportRange* ranges, uint32_t count,
+    const SharedMemory::Range* draw_ranges, uint32_t draw_range_count) {
   if (!shared_memory_ || !count || !MetalSharedMemory::MemexportExecArmEnabled()) {
     return false;
   }
@@ -9038,6 +9039,13 @@ bool MetalCommandProcessor::RecheckMemexportRangesForExecute(
     }
     const SharedMemory::Range r{start, length};
     invalid = invalid || AnySharedMemoryRangeInvalid(&r, 1);
+  }
+  // [memexport-exec-source] the draw's other ranges (a copy shader's vfetch
+  // source) get the same execute-time check: a stale source is exported
+  // as-is into a valid destination.
+  if (!invalid && draw_range_count &&
+      MetalSharedMemory::MemexportExecSourceEnabled()) {
+    invalid = AnySharedMemoryRangeInvalid(draw_ranges, draw_range_count);
   }
   return invalid;
 }
@@ -9081,18 +9089,13 @@ bool MetalCommandProcessor::SubmitPreparedDraw(
   // stale buffer that the readback copies over guest RAM.
   // The draw's other ranges (the copy shader's vfetch source) get the same
   // execute-time check: a stale source is exported as-is.
-  bool memexport_invalid_now =
+  const bool memexport_invalid_now =
       !draw.memexport_ranges.empty() &&
       RecheckMemexportRangesForExecute(
           draw.memexport_ranges.data(),
-          uint32_t(draw.memexport_ranges.size()));
-  if (!memexport_invalid_now && !draw.memexport_ranges.empty() &&
-      MetalSharedMemory::MemexportExecArmEnabled() && shared_memory_ &&
-      !draw.materialization_ranges.empty()) {
-    memexport_invalid_now = AnySharedMemoryRangeInvalid(
-        draw.materialization_ranges.data(),
-        uint32_t(draw.materialization_ranges.size()));
-  }
+          uint32_t(draw.memexport_ranges.size()),
+          draw.materialization_ranges.data(),
+          uint32_t(draw.materialization_ranges.size()));
   if ((draw.has_invalid_shared_memory || memexport_invalid_now) &&
       shared_memory_ && !draw.materialization_ranges.empty()) {
     PrepareSharedMemoryUploadBeforeDrawPass(

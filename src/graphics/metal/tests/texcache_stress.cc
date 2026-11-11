@@ -295,7 +295,9 @@ class TexCacheStressAccess {
     // [memexport-exec-arm] as SubmitPreparedDraw: execute-time re-check and
     // readback snapshot (off with REX_METAL_MEMEXPORT_EXEC_ARM=0).
     const draw_util::MemExportRange mx(start >> 2, decl_len);
-    const bool invalid_now = cp_->RecheckMemexportRangesForExecute(&mx, 1);
+    const SharedMemory::Range dr{start, decl_len};
+    const bool invalid_now =
+        cp_->RecheckMemexportRangesForExecute(&mx, 1, &dr, 1);
     if ((request || invalid_now) &&
         !cp_->RequestSharedMemoryRange(
             MetalCommandProcessor::SharedMemoryRequestReason::kMemexportStream,
@@ -325,6 +327,44 @@ class TexCacheStressAccess {
     }
     s.RangeWrittenByGpu(start, decl_len);
     s.MarkGpuWrite(start & (SharedMemory::kBufferSize - 1), decl_len,
+                   cp_->submission_current_);
+    return true;
+  }
+
+  // A memexport copy draw (a vs-only copy shader, as the game's texture
+  // MOVE): it reads [src, src + copy_len) from the shared buffer (vfetch) and
+  // exports it at dst + write_off, inside a declared export range
+  // [dst, dst + decl_len). The draw's shared-memory ranges are the source
+  // and the export range, as SubmitPreparedDraw's materialization_ranges.
+  // request: the prepare-time has_invalid_shared_memory.
+  bool MemexportGpuCopy(uint32_t src, uint32_t copy_len, uint32_t dst,
+                        uint32_t decl_len, uint32_t write_off, bool request) {
+    if (!cp_->EnsureCommandBuffer()) return false;
+    MetalSharedMemory& s = sm();
+    const draw_util::MemExportRange mx(dst >> 2, decl_len);
+    const SharedMemory::Range dr[2] = {{src, copy_len}, {dst, decl_len}};
+    const bool invalid_now =
+        cp_->RecheckMemexportRangesForExecute(&mx, 1, dr, 2);
+    if ((request || invalid_now) &&
+        !cp_->RequestSharedMemoryRanges(
+            MetalCommandProcessor::SharedMemoryRequestReason::kDrawMaterialization,
+            dr, 2)) {
+      return false;
+    }
+    if (!cp_->EnsureCommandBuffer()) return false;
+    MTL::BlitCommandEncoder* blit = cp_->GetSharedMemoryUploadBlitEncoder();
+    if (!blit) return false;
+    blit->copyFromBuffer(s.GetBuffer(), src, s.GetBuffer(), dst + write_off,
+                         copy_len);
+    cp_->EndSharedMemoryUploadBlitEncoder();
+    if (MetalSharedMemory::MemexportPreserveEnabled()) {
+      s.NoteMemexportWrite(dst, decl_len);
+    }
+    if (MetalSharedMemory::MemexportReadbackEnabled()) {
+      s.NoteMemexportReadback(dst, decl_len, cp_->submission_current_);
+    }
+    s.RangeWrittenByGpu(dst, decl_len);
+    s.MarkGpuWrite(dst & (SharedMemory::kBufferSize - 1), decl_len,
                    cp_->submission_current_);
     return true;
   }
@@ -1267,6 +1307,71 @@ void StaleReadbackScenario(const char* name, const TexDesc& d, Sr mode,
   g_expected_base = nullptr;
 }
 
+// Stale copy SOURCE (manager follow-up, 2026-11-10): a memexport copy draw
+// (the game's texture MOVE) reads a source block whose guest bytes the CPU
+// rewrote (S_old -> S_new) but which was never uploaded, and writes it into a
+// valid, up-to-date destination holding loaded texture A. The draw was
+// prepared before the CPU write (prepare-time has_invalid_shared_memory
+// false). Guest RAM and the texture at the destination must hold S_new.
+//   partial: the copy writes 0x800 bytes at +0x400 of an 8 KB declared range.
+//   pending: control, prepared after the CPU write (the request uploads S_new).
+// A resolve is not a case: its source is EDRAM, not the shared buffer.
+void StaleSourceScenario(const char* name, const TexDesc& d, bool partial,
+                         bool pending) {
+  // A 512 KB spacer: a non-exact CPU-write invalidation widens up to its
+  // 256 KB page block, and must not reach the destination (in the game the
+  // source and destination pool blocks need not be neighbours).
+  Region src = Alloc(256 * 1024);
+  (void)Alloc(512 * 1024);
+  Region dst = Alloc(256 * 1024);
+  xe_gpu_texture_fetch_t f = MakeFetch(d, dst.phys, 0);
+  Extents e = GetExtents(f);
+  const uint32_t blen = (e.base + 0xFFF) & ~0xFFFu;
+  std::vector<uint8_t> expected = Pattern(dst.size, 400);  // texture A
+  Seed(dst, 0, expected);
+  const std::vector<uint8_t> s_old = Pattern(blen, 401);
+  Seed(src, 0, s_old);
+  g_acc->MakeResident(dst.phys, blen);
+  g_acc->MakeResident(src.phys, blen);  // the source is valid with S_old
+  g_acc->Materialize(f);
+  g_acc->Flush();
+  const std::vector<uint8_t> s_new = Pattern(blen, 402);
+  GuestWrite(src, 0, s_new);  // invalidates the source pages, not uploaded
+  const uint32_t woff = partial ? 0x400 : 0;
+  const uint32_t clen = partial ? 0x800 : blen;
+  std::copy(s_new.begin(), s_new.begin() + clen, expected.begin() + woff);
+  if (!g_acc->MemexportGpuCopy(src.phys, clen, dst.phys, blen, woff, pending)) {
+    std::printf("HARNESS scenario %s: memexport copy failed\n", name);
+    ++g_harness_errors;
+    return;
+  }
+  g_acc->Flush();
+  g_acc->ProcessCompletions();
+  std::vector<uint8_t> g;
+  ReadGuest(dst, 0, blen, g);
+  if (!std::equal(g.begin(), g.end(), expected.begin())) {
+    uint32_t first = 0, last = 0, n = 0, old_bytes = 0;
+    while (first < blen && g[first] == expected[first]) ++first;
+    for (uint32_t i = first; i < blen; ++i) {
+      if (g[i] != expected[i]) {
+        last = i;
+        ++n;
+        if (i >= woff && i < woff + clen && g[i] == s_old[i - woff]) {
+          ++old_bytes;
+        }
+      }
+    }
+    std::printf("FAIL scenario %s: destination guest RAM at 0x%08X holds the "
+                "stale source (0x%X..0x%X, %u bytes differ, %u of them equal "
+                "the old source bytes)\n",
+                name, dst.phys, first, last, n, old_bytes);
+    ++g_failures;
+  }
+  g_expected_base = &expected;
+  Verify(name, d, dst, nullptr);
+  g_expected_base = nullptr;
+}
+
 // A 1x resolve (render target copy) overlapping a loaded texture's memory,
 // then the texture is sampled. The resolved bytes are mirrored into guest RAM
 // so the guest stays the oracle (the reference load sees the same bytes).
@@ -1472,6 +1577,11 @@ int main(int argc, char** argv) {
       {"stale_readback_part_page_pending_upload", [](const char* n) { StaleReadbackScenario(n, kDxt1_128, Sr::kBeforeDrawPendingUpload, true); }},
       {"stale_readback_part_page_no_upload", [](const char* n) { StaleReadbackScenario(n, kDxt1_128, Sr::kBeforeDrawNoUpload, true); }},
       {"stale_readback_part_page_during_encode", [](const char* n) { StaleReadbackScenario(n, kDxt1_128, Sr::kDuringEncode, true); }},
+      // 8e. Stale copy source: a memexport copy reads a CPU-rewritten,
+      // not-uploaded source into a valid destination.
+      {"stale_source_copy_full", [](const char* n) { StaleSourceScenario(n, kDxt1_128, false, false); }},
+      {"stale_source_copy_partial", [](const char* n) { StaleSourceScenario(n, kDxt1_128, true, false); }},
+      {"stale_source_copy_pending", [](const char* n) { StaleSourceScenario(n, kDxt1_128, false, true); }},
       // 9. Resolve (render target copy) overlapping a loaded texture.
       {"resolve_alias_full_rtt", [](const char* n) { ResolveAliasScenario(n, kRgba64, true, 0, 0, true, 0); }},
       {"resolve_alias_full_base", [](const char* n) { ResolveAliasScenario(n, kRgba64, true, 0, 0, false, 0); }},

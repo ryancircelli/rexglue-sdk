@@ -251,6 +251,14 @@ bool MetalSharedMemory::MemexportExecArmEnabled() {
   return enabled;
 }
 
+bool MetalSharedMemory::MemexportExecSourceEnabled() {
+  static const bool enabled = [] {
+    const char* v = MetalDebugEnv("MEMEXPORT_EXEC_SOURCE");
+    return !(v && v[0] == '0');
+  }();
+  return enabled;
+}
+
 bool MetalSharedMemory::MemexportReadbackStaleInvalidateEnabled() {
   static const bool enabled = [] {
     const char* v = MetalDebugEnv("MEMEXPORT_READBACK_STALE_INVALIDATE");

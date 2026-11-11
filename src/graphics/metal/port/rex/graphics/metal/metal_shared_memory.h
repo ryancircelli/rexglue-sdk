@@ -353,6 +353,10 @@ class MetalSharedMemory : public SharedMemory {
   // RangeWrittenByGpu then shows up as a guest change and keeps its bytes.
   // NoteMemexportReadback consumes the armed entry with the same range.
   static bool MemexportExecArmEnabled();
+  // [memexport-exec-source] REX_METAL_MEMEXPORT_EXEC_SOURCE (default on; =0
+  // off; needs EXEC_ARM): the execute-time re-check also covers the draw's
+  // other shared-memory ranges (a copy shader's source).
+  static bool MemexportExecSourceEnabled();
   void ArmMemexportReadback(uint32_t start, uint32_t length);
   void ClearArmedMemexportReadbacks() { armed_readbacks_.clear(); }
   // [readback-stale-invalidate] REX_METAL_MEMEXPORT_READBACK_STALE_INVALIDATE

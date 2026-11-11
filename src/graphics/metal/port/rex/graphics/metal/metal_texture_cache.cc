@@ -6432,9 +6432,28 @@ MTL::PixelFormat MetalTextureCache::MetalTexture::GetViewPixelFormat(
       return MTL::PixelFormatRG16Snorm;
     case xenos::TextureFormat::k_16_16_16_16:
       return MTL::PixelFormatRGBA16Snorm;
+    // These formats are materialized as 8-bit UNORM texels by the Metal
+    // compute decoders. Their channel codes are 8-bit, so the underlying bits
+    // are shared by SNORM and UNORM; expose the signed view so the sampler
+    // interprets each texel before filtering. DXT2/3 alpha is only 4-bit, so
+    // this view fixes its 8-bit color channels but needs a separate alpha
+    // transcode (covered by the remaining conformance failures).
+    case xenos::TextureFormat::k_DXT1:
+    case xenos::TextureFormat::k_DXT2_3:
+    case xenos::TextureFormat::k_DXT4_5:
+      if (texture_cache_.IsDecompressionNeededForKey(key())) {
+        return MTL::PixelFormatRGBA8Snorm;
+      }
+      break;
+    case xenos::TextureFormat::k_DXN:
+    case xenos::TextureFormat::k_CTX1:
+      return MTL::PixelFormatRG8Snorm;
+    case xenos::TextureFormat::k_DXT5A:
+      return MTL::PixelFormatR8Snorm;
     default:
-      return MtlPixelFormat();
+      break;
   }
+  return MtlPixelFormat();
 }
 
 MTL::TextureType MetalTextureCache::MetalTexture::GetViewType(

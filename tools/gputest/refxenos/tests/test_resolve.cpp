@@ -60,7 +60,9 @@ static RegisterFile Base(Memory& memory, xenos::MsaaSamples msaa = xenos::MsaaSa
   std::memcpy(&rf.values[XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0], &fetch, sizeof(fetch));
   const float vertices[6] = {0, 0, 8, 0, 0, 8};
   for (uint32_t i = 0; i < 6; ++i) {
-    WriteBE32(memory, 0x1000 + 4 * i, xenos::GpuSwap(AsU32(vertices[i]), fetch.endian));
+    // Guest memory stores the float in big-endian byte order. The GPU's
+    // little-endian word load followed by the fetch's 8in32 swap restores it.
+    WriteBE32(memory, 0x1000 + 4 * i, AsU32(vertices[i]));
   }
   rf[XE_GPU_REG_RB_COPY_DEST_BASE] = 0x100000;
   return rf;

@@ -504,11 +504,12 @@ static void TestPerspInterp() {
   delete rf;
 }
 
-// Flat shading takes the provoking vertex: first, or last with provoking_vtx_last.
+// param_shade is not a flat mask: games set it to the used-interpolator mask
+// (BO2 draw 3377: 0x1FF) and those inputs still interpolate.
 static void TestFlat() {
   RegisterFile* rf = Base();
   reg::SQ_INTERPOLATOR_CNTL ic{};
-  ic.param_shade = 0b10;  // r1 flat
+  ic.param_shade = 0x1FF;
   Set(*rf, ic);
   std::vector<VertexOut> v = {V(0, 0), V(16, 0), V(0, 16)};
   for (int i = 0; i < 3; ++i) {
@@ -517,13 +518,10 @@ static void TestFlat() {
   }
   Result r = Draw(*rf, PT::kTriangleList, v);
   const Pix* p = r.At(3, 3);
-  CHECK(p && p->interp[1][0] == 1.0f && p->interp[0][0] != 1.0f);
-  auto sc = rf->Get<reg::PA_SU_SC_MODE_CNTL>();
-  sc.provoking_vtx_last = 1;
-  Set(*rf, sc);
-  r = Draw(*rf, PT::kTriangleList, v);
-  p = r.At(3, 3);
-  CHECK(p && p->interp[1][0] == 3.0f);
+  const Pix* q = r.At(4, 3);
+  CHECK(p && q && p->interp[1][0] != 1.0f && p->interp[1][0] == p->interp[0][0]);
+  CHECK(p && q && p->interp[1][0] != q->interp[1][0]);
+  CHECK(RasterFlatMask(*rf) == 0);
   delete rf;
 }
 

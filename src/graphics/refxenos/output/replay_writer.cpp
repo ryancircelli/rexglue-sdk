@@ -90,6 +90,9 @@ const NamedRegister kStateRegisters[] = {
     RX_REG(RB_COPY_DEST_INFO),
     RX_REG(RB_DEPTH_CLEAR),
     RX_REG(RB_COLOR_CLEAR),
+    // Preserve this rasterizer setting in diagnostics so flat PS inputs can
+    // be distinguished from missing or incorrect interpolation gradients.
+    RX_REG(SQ_INTERPOLATOR_CNTL),
 };
 #undef RX_REG
 #undef RX_REG_F

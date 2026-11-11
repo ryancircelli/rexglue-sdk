@@ -145,9 +145,12 @@ RX_DEFINE_RULE(raster_persp_corr_dis, 1,
                true,
                "triangle with w = 1, 4, 16 at its vertices and o0 = (u, 0, 0, 1); compare center pixel "
                "values with persp_corr_dis 0 and 1");
-RX_DEFINE_RULE(raster_flat_param_shade, 1,
-               "assumed: SQ_INTERPOLATOR_CNTL.param_shade bit i = 1 makes interpolator i flat (provoking "
-               "vertex value); Xenia ignores param_shade",
+RX_DEFINE_RULE(raster_flat_param_shade, 2,
+               "assumed: SQ_INTERPOLATOR_CNTL.param_shade does not select flat shading; every "
+               "interpolator is smooth (Xenia ignores param_shade, pipeline_cache.cpp uses only "
+               "sampling_pattern). Evidence: BO2 4p trace 415608C3_5467 frame 0 sets param_shade to the "
+               "low mask of the PS interpolator count on nearly every draw (0x3 x1532, 0xFF x706, 0x1FF "
+               "x447), including draw 3377 whose diffuse UV r0 must vary; v1 (bit = flat) flattened it",
                true,
                "D3DRS_SHADEMODE flat vs gouraud with a colour interpolant that differs per vertex; read "
                "back SQ_INTERPOLATOR_CNTL and the pixel values");
@@ -1487,7 +1490,9 @@ uint32_t RasterCentroidMask(const RegisterFile& regs) {
 }
 
 uint32_t RasterFlatMask(const RegisterFile& regs) {
-  return regs.Get<reg::SQ_INTERPOLATOR_CNTL>().param_shade & ((1u << kMaxInterpolators) - 1);
+  // raster_flat_param_shade v2: param_shade is not a flat mask (see the rule).
+  (void)regs;
+  return 0;
 }
 
 void RasterizeDraw(const RegisterFile& regs, const RasterInput& in, const QuadEmitFn& emit,
@@ -1495,7 +1500,7 @@ void RasterizeDraw(const RegisterFile& regs, const RasterInput& in, const QuadEm
   Ctx ctx(regs, emit, stats);
   InitCtx(ctx);
   RX_USE(raster_provoking_vertex);
-  if (ctx.flat_mask) RX_USE(raster_flat_param_shade);
+  RX_USE(raster_flat_param_shade);
   if (ctx.vtx.pix_center == xenos::PixelCenter::kOGLHalf) {
     RX_USE(raster_param_gen_ogl_center);
   }

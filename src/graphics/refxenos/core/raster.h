@@ -27,8 +27,8 @@
 //
 // INTERPOLATION
 //   All 16 interpolators are interpolated for every pixel (the shader glue
-//   applies the PS input mask / zeroing). Flat (SQ_INTERPOLATOR_CNTL
-//   param_shade) interpolators take the provoking vertex value; centroid ones
+//   applies the PS input mask / zeroing). SQ_INTERPOLATOR_CNTL param_shade
+//   is not treated as a flat mask (rule raster_flat_param_shade); centroid ones
 //   are evaluated at the centroid location (see RasterCentroidMask).
 //   PixelQuad::param_gen is always filled, encoded (the glue decides whether
 //   the shader gets it, SQ_PROGRAM_CNTL param_gen + SQ_CONTEXT_MISC
@@ -70,7 +70,8 @@ std::span<const SamplePosition> RasterSamplePositions(xenos::MsaaSamples msaa);
 
 // Bit i set: interpolator i is sampled at the centroid (else at the center).
 uint32_t RasterCentroidMask(const RegisterFile& regs);
-// Bit i set: interpolator i is flat shaded (provoking vertex value).
+// Bit i set: interpolator i is flat shaded (provoking vertex value). Currently
+// always 0, see rule raster_flat_param_shade.
 uint32_t RasterFlatMask(const RegisterFile& regs);
 
 }  // namespace refxenos

@@ -96,6 +96,9 @@ class TexCacheStressAccess {
   }
 
   void Flush() { cp_->FlushCommandBufferAndWait(5000000000ULL, "texcache-stress"); }
+  // Completion processing (ProcessCompletedSubmissions: texture cache, then
+  // the memexport readbacks), as the next submission would run it.
+  void ProcessCompletions() { cp_->ProcessCompletedSubmissions(); }
 
   Texture* Find(const xenos::xe_gpu_texture_fetch_t& fetch) {
     TextureKey key;
@@ -269,6 +272,59 @@ class TexCacheStressAccess {
     }
     s.RangeWrittenByGpu(start, len);
     s.MarkGpuWrite(start & (SharedMemory::kBufferSize - 1), len,
+                   cp_->submission_current_);
+    return true;
+  }
+
+  // A GPU-ordered memexport draw whose declared export range is
+  // [start, start + decl_len) but whose shader writes only `bytes` at
+  // start + write_off (a copy shader exports only the elements it is given;
+  // the eM stream constant size is often larger). Mirrors IssueDraw:
+  //   1. the draw's range request (request == false: the prepare-time
+  //      has_invalid_shared_memory was false, as when a CPU write invalidated
+  //      the range after prepare; the execute-time re-check may still upload);
+  //   2. `between` (the draw being encoded: a CPU write landing here comes
+  //      after the request's upload and before the post-draw marking);
+  //   3. the export (blit in command buffer order);
+  //   4. IssueDraw's memexport_ranges loop over the declared range.
+  bool MemexportGpuPartial(uint32_t start, uint32_t decl_len, uint32_t write_off,
+                           const std::vector<uint8_t>& bytes, bool request,
+                           const std::function<void()>& between) {
+    if (!cp_->EnsureCommandBuffer()) return false;
+    MetalSharedMemory& s = sm();
+    // [memexport-exec-arm] as SubmitPreparedDraw: execute-time re-check and
+    // readback snapshot (off with REX_METAL_MEMEXPORT_EXEC_ARM=0).
+    const draw_util::MemExportRange mx(start >> 2, decl_len);
+    const bool invalid_now = cp_->RecheckMemexportRangesForExecute(&mx, 1);
+    if ((request || invalid_now) &&
+        !cp_->RequestSharedMemoryRange(
+            MetalCommandProcessor::SharedMemoryRequestReason::kMemexportStream,
+            start, decl_len)) {
+      return false;
+    }
+    if (between) between();
+    if (!cp_->EnsureCommandBuffer()) return false;
+    const uint32_t len = uint32_t(bytes.size());
+    MTL::Buffer* staging = cp_->GetMetalDevice()->newBuffer(
+        bytes.data(), len, MTL::ResourceStorageModeShared);
+    if (!staging) return false;
+    MTL::BlitCommandEncoder* blit = cp_->GetSharedMemoryUploadBlitEncoder();
+    if (!blit) {
+      staging->release();
+      return false;
+    }
+    blit->copyFromBuffer(staging, 0, s.GetBuffer(), start + write_off, len);
+    cp_->EndSharedMemoryUploadBlitEncoder();
+    cp_->GetCurrentCommandBuffer()->addCompletedHandler(
+        [staging](MTL::CommandBuffer*) { staging->release(); });
+    if (MetalSharedMemory::MemexportPreserveEnabled()) {
+      s.NoteMemexportWrite(start, decl_len);
+    }
+    if (MetalSharedMemory::MemexportReadbackEnabled()) {
+      s.NoteMemexportReadback(start, decl_len, cp_->submission_current_);
+    }
+    s.RangeWrittenByGpu(start, decl_len);
+    s.MarkGpuWrite(start & (SharedMemory::kBufferSize - 1), decl_len,
                    cp_->submission_current_);
     return true;
   }
@@ -1076,6 +1132,141 @@ void MemexportRebaseOverlapScenario(const char* name, const TexDesc& d) {
   Verify(name, d, base, nullptr);
 }
 
+// Stale memexport readback (write-trace run 3, 2026-11-10): the game's copy
+// routine wrote texture B's mips into a reused pool block, then a memexport
+// draw's readback copied another texture's bytes over them. Texture A is
+// loaded from the range and resident; the CPU rewrites the whole texture
+// with texture B through the guest (watched) view; a memexport draw declares
+// an export range over the texture but writes only part of it; the readback
+// lands. Guest RAM and the texture must hold B outside the written bytes.
+//   kBeforeDrawPendingUpload: CPU write, then the draw (its range request
+//     encodes the upload blit of B just before the export).
+//   kBeforeDrawUploaded: CPU write, B uploaded and completed in an earlier
+//     command buffer, then the draw.
+//   kBeforeDrawNoUpload: CPU write, then the draw with no upload (prepared
+//     while the range was valid; the execute path trusts that flag).
+//   kDuringEncode: the CPU write lands after the draw's range request and
+//     before the post-draw marking (RangeWrittenByGpu, readback snapshot).
+//     A guest-order race: the written bytes may hold the export or B.
+//   kUnwatchedAlias: the CPU write goes through a view with no watch (host
+//     write, no callbacks): the buffer stays valid with A. Not a readback bug
+//     (the write is never seen), but the readback turns it into a guest RAM
+//     overwrite. Extra, not in the default list.
+// part_page: the declared range starts and ends inside pages (0x180..0x1C80)
+// instead of covering the texture's whole page span.
+enum class Sr {
+  kBeforeDrawPendingUpload,
+  kBeforeDrawUploaded,
+  kBeforeDrawNoUpload,
+  kDuringEncode,
+  kUnwatchedAlias,
+};
+void StaleReadbackScenario(const char* name, const TexDesc& d, Sr mode,
+                           bool part_page) {
+  Region base = Alloc(256 * 1024);
+  xe_gpu_texture_fetch_t f = MakeFetch(d, base.phys, 0);
+  Extents e = GetExtents(f);
+  const uint32_t blen = (e.base + 0xFFF) & ~0xFFFu;
+  std::vector<uint8_t> expected = Pattern(base.size, 300);  // texture A
+  Seed(base, 0, expected);
+  g_acc->MakeResident(base.phys, blen);
+  g_acc->Materialize(f);
+  g_acc->Flush();
+  const uint32_t doff = part_page ? 0x180 : 0;
+  const uint32_t dlen = part_page ? blen - 0x380 : blen;
+  const uint32_t woff = 0x400, wlen = 0x400;  // the bytes the draw writes
+  const std::vector<uint8_t> x = Pattern(wlen, 301);
+  const std::vector<uint8_t> b = Pattern(blen, 302);  // texture B
+  auto cpu_write_b = [&]() {
+    if (mode == Sr::kUnwatchedAlias) {
+      HostWrite(base, 0, b);
+    } else {
+      GuestWrite(base, 0, b);
+    }
+  };
+  // Guest order: B, then the export (the GPU ran the draw after the CPU
+  // wrote, in every mode).
+  std::copy(b.begin(), b.end(), expected.begin());
+  std::copy(x.begin(), x.end(), expected.begin() + doff + woff);
+  bool request = true;
+  std::function<void()> between;
+  switch (mode) {
+    case Sr::kBeforeDrawPendingUpload:
+    case Sr::kUnwatchedAlias:
+      cpu_write_b();
+      break;
+    case Sr::kBeforeDrawUploaded:
+      cpu_write_b();
+      g_acc->MakeResident(base.phys, blen);
+      g_acc->Flush();
+      break;
+    case Sr::kBeforeDrawNoUpload:
+      cpu_write_b();
+      request = false;
+      break;
+    case Sr::kDuringEncode:
+      between = cpu_write_b;
+      break;
+  }
+  if (!g_acc->MemexportGpuPartial(base.phys + doff, dlen, woff, x, request,
+                                  between)) {
+    std::printf("HARNESS scenario %s: memexport failed\n", name);
+    ++g_harness_errors;
+    return;
+  }
+  g_acc->Flush();  // the export's command buffer completes
+  g_acc->ProcessCompletions();  // the readback lands
+  std::vector<uint8_t> g;
+  ReadGuest(base, 0, blen, g);
+  if (mode == Sr::kDuringEncode) {
+    // The CPU write lands after the draw was issued (the command processor
+    // only sees a draw after the guest kicked it), racing the GPU in guest
+    // order too. The readback merge decides per byte (CPU-changed bytes keep
+    // the CPU data), so each written byte may hold the export or B.
+    // Everything outside the written bytes must hold B either way, and the
+    // texture must match guest RAM.
+    bool ok = true;
+    uint32_t kept_cpu = 0;
+    for (uint32_t i = 0; i < blen && ok; ++i) {
+      const bool in_w = i >= doff + woff && i < doff + woff + wlen;
+      if (!in_w) {
+        ok = g[i] == expected[i];
+      } else if (g[i] != expected[i]) {
+        ok = g[i] == b[i];
+        ++kept_cpu;
+      }
+    }
+    if (ok) {
+      std::copy(g.begin(), g.end(), expected.begin());
+      if (g_verbose) {
+        std::printf("note %s: %u written bytes kept the CPU write\n", name,
+                    kept_cpu);
+      }
+    }
+  }
+  if (!std::equal(g.begin(), g.end(), expected.begin())) {
+    uint32_t first = 0, last = 0, n = 0, a_bytes = 0;
+    while (first < blen && g[first] == expected[first]) ++first;
+    const std::vector<uint8_t> a = Pattern(base.size, 300);
+    for (uint32_t i = first; i < blen; ++i) {
+      if (g[i] != expected[i]) {
+        last = i;
+        ++n;
+        if (g[i] == a[i]) ++a_bytes;
+      }
+    }
+    std::printf("FAIL scenario %s: guest RAM at 0x%08X holds stale bytes after "
+                "the readback (0x%X..0x%X, %u bytes differ from B+export, %u "
+                "of them equal texture A; declared 0x%X+0x%X, written 0x%X+0x%X)\n",
+                name, base.phys, first, last, n, a_bytes, doff, dlen,
+                doff + woff, wlen);
+    ++g_failures;
+  }
+  g_expected_base = &expected;
+  Verify(name, d, base, nullptr);
+  g_expected_base = nullptr;
+}
+
 // A 1x resolve (render target copy) overlapping a loaded texture's memory,
 // then the texture is sampled. The resolved bytes are mirrored into guest RAM
 // so the guest stays the oracle (the reference load sees the same bytes).
@@ -1272,6 +1463,15 @@ int main(int argc, char** argv) {
       {"mx_gpu_export_then_cpu_page_write_reupload", [](const char* n) { MemexportGpuScenario(n, kDxt1_128, Gx::kExportThenCpuPageWriteReupload); }},
       {"mx_gpu_export_then_cpu_partial_write", [](const char* n) { MemexportGpuScenario(n, kDxt1_128, Gx::kExportThenCpuPartial); }},
       {"mx_gpu_export_then_file_partial_write", [](const char* n) { MemexportGpuScenario(n, kDxt1_128, Gx::kExportThenFilePartial); }},
+      // 8d. Stale memexport readback: CPU rewrites a texture, then a draw
+      // exports into part of its declared range (write-trace run 3).
+      {"stale_readback_pending_upload", [](const char* n) { StaleReadbackScenario(n, kDxt1_128, Sr::kBeforeDrawPendingUpload, false); }},
+      {"stale_readback_uploaded", [](const char* n) { StaleReadbackScenario(n, kDxt1_128, Sr::kBeforeDrawUploaded, false); }},
+      {"stale_readback_no_upload", [](const char* n) { StaleReadbackScenario(n, kDxt1_128, Sr::kBeforeDrawNoUpload, false); }},
+      {"stale_readback_during_encode", [](const char* n) { StaleReadbackScenario(n, kDxt1_128, Sr::kDuringEncode, false); }},
+      {"stale_readback_part_page_pending_upload", [](const char* n) { StaleReadbackScenario(n, kDxt1_128, Sr::kBeforeDrawPendingUpload, true); }},
+      {"stale_readback_part_page_no_upload", [](const char* n) { StaleReadbackScenario(n, kDxt1_128, Sr::kBeforeDrawNoUpload, true); }},
+      {"stale_readback_part_page_during_encode", [](const char* n) { StaleReadbackScenario(n, kDxt1_128, Sr::kDuringEncode, true); }},
       // 9. Resolve (render target copy) overlapping a loaded texture.
       {"resolve_alias_full_rtt", [](const char* n) { ResolveAliasScenario(n, kRgba64, true, 0, 0, true, 0); }},
       {"resolve_alias_full_base", [](const char* n) { ResolveAliasScenario(n, kRgba64, true, 0, 0, false, 0); }},
@@ -1285,6 +1485,13 @@ int main(int argc, char** argv) {
 #endif
   };
 
+  // Extras: run only by name (--only), not part of the pass/fail gate.
+  std::vector<ScenarioEntry> extras = {
+      {"stale_readback_unwatched_alias", [](const char* n) { StaleReadbackScenario(n, kDxt1_128, Sr::kUnwatchedAlias, false); }},
+  };
+  if (!only.empty()) {
+    for (auto& x : extras) scenarios.push_back(x);
+  }
   int ran = 0;
   for (auto& s : scenarios) {
     if (!only.empty() && only != s.name) continue;

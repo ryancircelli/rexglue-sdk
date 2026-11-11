@@ -9023,6 +9023,25 @@ MetalCommandProcessor::AcquireResourceSetScratch(RenderResourceSet& fallback) {
   return resource_set_scratch_;
 }
 
+bool MetalCommandProcessor::RecheckMemexportRangesForExecute(
+    const draw_util::MemExportRange* ranges, uint32_t count) {
+  if (!shared_memory_ || !count || !MetalSharedMemory::MemexportExecArmEnabled()) {
+    return false;
+  }
+  shared_memory_->ClearArmedMemexportReadbacks();
+  bool invalid = false;
+  for (uint32_t i = 0; i < count; ++i) {
+    const uint32_t start = ranges[i].base_address_dwords << 2;
+    const uint32_t length = ranges[i].size_bytes;
+    if (MetalSharedMemory::MemexportReadbackEnabled()) {
+      shared_memory_->ArmMemexportReadback(start, length);
+    }
+    const SharedMemory::Range r{start, length};
+    invalid = invalid || AnySharedMemoryRangeInvalid(&r, 1);
+  }
+  return invalid;
+}
+
 bool MetalCommandProcessor::SubmitPreparedDraw(
     std::unique_ptr<PreparedDraw> draw_ptr) {
   PreparedDrawQueueRejectReason reject_reason =
@@ -9056,8 +9075,17 @@ bool MetalCommandProcessor::SubmitPreparedDraw(
     return false;
   }
 
-  if (draw.has_invalid_shared_memory && shared_memory_ &&
-      !draw.materialization_ranges.empty()) {
+  // [memexport-exec-arm] the export ranges are re-checked and the readback
+  // snapshot taken here, when the draw executes: has_invalid_shared_memory
+  // is from prepare time, and a CPU write since then would otherwise leave a
+  // stale buffer that the readback copies over guest RAM.
+  const bool memexport_invalid_now =
+      !draw.memexport_ranges.empty() &&
+      RecheckMemexportRangesForExecute(
+          draw.memexport_ranges.data(),
+          uint32_t(draw.memexport_ranges.size()));
+  if ((draw.has_invalid_shared_memory || memexport_invalid_now) &&
+      shared_memory_ && !draw.materialization_ranges.empty()) {
     PrepareSharedMemoryUploadBeforeDrawPass(
         draw.materialization_ranges.data(),
         static_cast<uint32_t>(draw.materialization_ranges.size()));

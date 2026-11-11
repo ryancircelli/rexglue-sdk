@@ -243,6 +243,45 @@ bool MemexportReadbackRebaseSnapshotEnabled() {
 }
 }  // namespace
 
+bool MetalSharedMemory::MemexportExecArmEnabled() {
+  static const bool enabled = [] {
+    const char* v = MetalDebugEnv("MEMEXPORT_EXEC_ARM");
+    return !(v && v[0] == '0');
+  }();
+  return enabled;
+}
+
+bool MetalSharedMemory::MemexportReadbackStaleInvalidateEnabled() {
+  static const bool enabled = [] {
+    const char* v = MetalDebugEnv("MEMEXPORT_READBACK_STALE_INVALIDATE");
+    return !(v && v[0] == '0');
+  }();
+  return enabled;
+}
+
+void MetalSharedMemory::ArmMemexportReadback(uint32_t start, uint32_t length) {
+  if (!length || start >= kBufferSize) {
+    return;
+  }
+  const uint32_t end =
+      uint32_t(std::min<uint64_t>(uint64_t(start) + length, kBufferSize));
+  if (end - start > kReadbackMaxRangeBytes) {
+    return;
+  }
+  const uint8_t* guest =
+      static_cast<const uint8_t*>(memory().TranslatePhysical(0));
+  if (!guest) {
+    return;
+  }
+  PendingReadback entry{start, end, 0, XXH3_64bits(guest + start, end - start),
+                        frame_log::CurrentFrame(), {}};
+  if (MemexportReadbackMergeEnabled() &&
+      end - start <= kReadbackSnapshotMaxBytes) {
+    entry.snapshot.assign(guest + start, guest + end);
+  }
+  armed_readbacks_.push_back(std::move(entry));
+}
+
 void MetalSharedMemory::NoteMemexportReadback(uint32_t start, uint32_t length,
                                               uint64_t submission) {
   if (!length || start >= kBufferSize || !submission) {
@@ -269,6 +308,15 @@ void MetalSharedMemory::NoteMemexportReadback(uint32_t start, uint32_t length,
     // Should not happen (completions are processed every command buffer);
     // drop the oldest so bookkeeping stays bounded.
     pending_readbacks_.pop_front();
+  }
+  for (auto it = armed_readbacks_.begin(); it != armed_readbacks_.end(); ++it) {
+    if (it->start == start && it->end == end) {
+      PendingReadback armed = std::move(*it);
+      armed_readbacks_.erase(it);
+      armed.submission = submission;
+      pending_readbacks_.push_back(std::move(armed));
+      return;
+    }
   }
   PendingReadback entry{start, end, submission,
                         XXH3_64bits(guest + start, end - start),
@@ -328,6 +376,36 @@ void MetalSharedMemory::ApplyCompletedMemexportReadbacks(
   if (MemexportReadbackGlobalLockEnabled()) {
     global_lock = rex::thread::global_critical_region::AcquireDirect();
   }
+  // [readback-stale-invalidate] page runs where guest RAM and the buffer
+  // disagree after the readback. Pages a not-yet-completed export also
+  // covers are left alone (the buffer legitimately holds newer GPU data).
+  std::vector<std::pair<uint32_t, uint32_t>> stale_runs;
+  auto collect_stale = [&](const PendingReadback& e, size_t first_pending) {
+    if (!MemexportReadbackStaleInvalidateEnabled()) return;
+    const uint32_t page = 1u << page_size_log2();
+    uint32_t p = e.start & ~(page - 1);
+    while (p < e.end) {
+      const uint32_t s = std::max(p, e.start);
+      const uint32_t t = std::min(p + page, e.end);
+      bool later = false;
+      for (size_t j = first_pending; j < pending_readbacks_.size(); ++j) {
+        const PendingReadback& l = pending_readbacks_[j];
+        if (l.start < p + page && l.end > p) {
+          later = true;
+          break;
+        }
+      }
+      if (!later && std::memcmp(guest + s, gpu + s, t - s) != 0) {
+        if (!stale_runs.empty() &&
+            stale_runs.back().first + stale_runs.back().second == p) {
+          stale_runs.back().second += page;
+        } else {
+          stale_runs.emplace_back(p, page);
+        }
+      }
+      p += page;
+    }
+  };
   for (size_t i = 0; i < done; ++i) {
     const PendingReadback& e = pending_readbacks_[i];
     const uint32_t len = e.end - e.start;
@@ -349,6 +427,7 @@ void MetalSharedMemory::ApplyCompletedMemexportReadbacks(
       // The CPU wrote into the export range after the export: its data wins
       // (that write also invalidated the page, so it gets re-uploaded).
       cpu_skip_bytes += len;
+      collect_stale(e, done);
       continue;
     }
     // Hashes taken by later exports / fix A that still describe the guest
@@ -387,6 +466,7 @@ void MetalSharedMemory::ApplyCompletedMemexportReadbacks(
         }
       }
       ++merged_ranges;
+      collect_stale(e, done);
     } else {
       guest_changed = std::memcmp(guest + e.start, gpu + e.start, len) != 0;
       std::memcpy(guest + e.start, gpu + e.start, len);
@@ -424,6 +504,27 @@ void MetalSharedMemory::ApplyCompletedMemexportReadbacks(
   }
     pending_readbacks_.erase(pending_readbacks_.begin(),
                              pending_readbacks_.begin() + done);
+  // Preserved exports over stale pages must not carve the re-upload.
+  for (const auto& r : stale_runs) {
+    for (size_t k = 0; k < preserved_exports_.size();) {
+      const PreservedExport& p = preserved_exports_[k];
+      if (p.end <= r.first || p.start >= r.first + r.second) {
+        ++k;
+        continue;
+      }
+      preserved_exports_.erase(preserved_exports_.begin() + k);
+    }
+  }
+  for (const auto& r : stale_runs) {
+    static uint32_t logged_stale = 0;
+    if (logged_stale < 24) {
+      ++logged_stale;
+      REXLOG_INFO("[readback-stale-invalidate] 0x{:08X} len={} guest != "
+                  "buffer after readback, invalidated",
+                  r.first, r.second);
+    }
+    MemoryInvalidationCallback(r.first, r.second, true);
+  }
   for (const auto& r : fire_ranges) {
     FireWatchesForHostWrite(r.first, r.second);
   }

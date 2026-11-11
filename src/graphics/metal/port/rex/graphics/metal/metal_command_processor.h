@@ -1085,6 +1085,10 @@ class MetalCommandProcessor final : public CommandProcessor {
   bool IsResidencySetHeapCovered(MTL::Heap* heap) const;
   bool AnySharedMemoryRangeInvalid(const SharedMemory::Range* ranges,
                                    uint32_t range_count) const;
+  // [memexport-exec-arm] arms the readback snapshots of a memexport draw's
+  // ranges and returns whether any of them is invalid now (execute time).
+  bool RecheckMemexportRangesForExecute(const draw_util::MemExportRange* ranges,
+                                        uint32_t count);
   void RecordSharedMemoryLazyUploadRoute(
       const MetalSharedMemory::UploadRouteInfo& route_info,
       bool render_encoder_active);

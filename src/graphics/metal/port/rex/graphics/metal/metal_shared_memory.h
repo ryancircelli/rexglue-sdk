@@ -346,6 +346,20 @@ class MetalSharedMemory : public SharedMemory {
   static bool ShmemValidFirstEnabled();
   void NoteMemexportReadback(uint32_t start, uint32_t length,
                              uint64_t submission);
+  // [memexport-exec-arm] REX_METAL_MEMEXPORT_EXEC_ARM (default on; =0 off):
+  // the readback hash/snapshot of a memexport range is taken when the draw
+  // executes, before its shared-memory upload request, instead of after the
+  // draw is encoded. A CPU write landing between the upload and the post-draw
+  // RangeWrittenByGpu then shows up as a guest change and keeps its bytes.
+  // NoteMemexportReadback consumes the armed entry with the same range.
+  static bool MemexportExecArmEnabled();
+  void ArmMemexportReadback(uint32_t start, uint32_t length);
+  void ClearArmedMemexportReadbacks() { armed_readbacks_.clear(); }
+  // [readback-stale-invalidate] REX_METAL_MEMEXPORT_READBACK_STALE_INVALIDATE
+  // (default on; =0 off): pages of a completed export range whose guest bytes
+  // still differ from the GPU buffer after the readback (the CPU wrote them
+  // and the buffer never got the write) are invalidated so they re-upload.
+  static bool MemexportReadbackStaleInvalidateEnabled();
   void ApplyCompletedMemexportReadbacks(uint64_t completed_submission);
   // [upload-precommit] trace-only check (FABLE2_UPLOAD_VERIFY=1): once the
   // submission of a staged copy (in-pass or pre-commit) has completed, the
@@ -367,6 +381,7 @@ class MetalSharedMemory : public SharedMemory {
     std::vector<uint8_t> snapshot;
   };
   std::deque<PendingReadback> pending_readbacks_;
+  std::vector<PendingReadback> armed_readbacks_;
   struct PendingVerify {
     uint32_t start;
     uint32_t size;

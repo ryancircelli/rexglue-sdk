@@ -2,6 +2,7 @@
 // is decoded from guest memory on its own. Rule ids are listed in
 // ref_rules.cc with their sources.
 
+#include <cstdlib>
 #include "ref_sample.h"
 
 #include <algorithm>
@@ -260,6 +261,13 @@ std::array<float, 4> Sample(const SampleRequest& r, const GuestMemory& mem,
   bool magnify = !(lod > 0.0);  // rule sample.mag_min
   bool linear_xy = (magnify ? mag : min) == kLinear;
   bool linear_z = (magnify ? vmag : vmin) == kLinear;
+  // Diagnostic only: REFXENOS_DIAG_MAX_LOD caps the LOD to test which mip a
+  // different renderer must be sampling. Unset in normal use.
+  static const double diag_max_lod = [] {
+    const char* e = std::getenv("REFXENOS_DIAG_MAX_LOD");
+    return e ? std::atof(e) : INFINITY;
+  }();
+  if (lod > diag_max_lod) lod = diag_max_lod;
   double lod_c = std::clamp(std::isfinite(lod) ? lod : (lod > 0 ? 1e9 : -1e9),
                             double(lr.min_level), double(lr.max_level));
   uint32_t level0 = lr.min_level, level1 = lr.min_level;

@@ -171,6 +171,7 @@ int RunReplay(int argc, char** argv) {
       return argc < 2 ? 2 : 0;
     }
     std::string trace_path = argv[1], out_path, probe_out, guest_dump;
+    std::vector<std::string> guest_pokes;
     uint32_t frame = 0, frames = 0, first = 0, count = 0;
     bool frame_filter = false, list = false, shader_rop = true, full = false, dump_shaders = false;
     uint64_t ps_hash = 0;
@@ -218,6 +219,8 @@ int RunReplay(int argc, char** argv) {
         probe_out = next();
       else if (a == "--dump-guest")
         guest_dump = next();
+      else if (a == "--poke-guest")
+        guest_pokes.push_back(next());
       else {
         Usage();
         return 2;
@@ -274,6 +277,22 @@ int RunReplay(int argc, char** argv) {
           DrawStats stats;
           auto info = Record(d);
           const auto& regs = *d.regs;
+          // Diagnostic: overwrite guest bytes with a file just before the
+          // selected draw executes (ADDR:FILE), e.g. to substitute known-good
+          // texture data and test whether a difference is caused by it.
+          if (emit) {
+            for (const auto& poke : guest_pokes) {
+              auto sep = poke.find(':');
+              if (sep == std::string::npos)
+                throw std::runtime_error("--poke-guest needs ADDR:FILE");
+              uint32_t address = uint32_t(std::stoul(poke.substr(0, sep), nullptr, 0));
+              std::ifstream in(poke.substr(sep + 1), std::ios::binary);
+              std::vector<char> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+              if (!in.eof() && !in)
+                throw std::runtime_error("cannot read --poke-guest file");
+              memory.Write(address, bytes.data(), uint32_t(bytes.size()));
+            }
+          }
           if (emit && !guest_dump.empty()) {
             auto first_sep = guest_dump.find(':');
             auto second_sep = first_sep == std::string::npos ? first_sep : guest_dump.find(':', first_sep + 1);

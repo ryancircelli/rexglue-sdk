@@ -885,6 +885,35 @@ void ExecuteFetch(Ctx& ctx, Lane& lane, const uint32_t* dwords, const QuadSnapsh
                   double(req.grad_h[2]), double(req.grad_v[0]), double(req.grad_v[1]),
                   double(req.grad_v[2]), double(req.lod));
     Trace(ctx, lane, DisassembleFetch(dwords) + buf + Vec4Str(out));
+    // Diagnostics only (probe lanes): the LOD the sampler computes for this
+    // request and a point-mip sample of each level, so per-pixel mip choice
+    // and per-level texels can be compared with another renderer.
+    if (ctx.sampler && opc == ucode::FetchOpcode::kTextureFetch && req.has_grads) {
+      std::vector<std::string> unused;
+      TexFetchRequest lr = req;
+      lr.op = uint32_t(ucode::FetchOpcode::kGetTextureComputedLod);
+      float lod_out[4] = {0, 0, 0, 0};
+      ctx.sampler->Fetch(lr, lod_out, &unused);
+      std::string mips = "  ; computed_lod=" + FormatFloat(lod_out[0]) + " aniso=" +
+                         (req.aniso_filter ? std::to_string(*req.aniso_filter) : "fc") +
+                         " mipf=" + (req.mip_filter ? std::to_string(*req.mip_filter) : "fc");
+      for (int m = 0; m < 8; ++m) {
+        TexFetchRequest mr = req;
+        mr.use_computed_lod = false;
+        mr.lod_is_absolute = true;
+        mr.use_register_lod = true;
+        mr.lod = float(m);
+        mr.lod_bias_instr = 0.0f;
+        mr.mip_filter = 0;  // point
+        float mo[4] = {0, 0, 0, 0};
+        ctx.sampler->Fetch(mr, mo, &unused);
+        char mb[160];
+        std::snprintf(mb, sizeof(mb), " mip%d=(%.6g %.6g %.6g %.6g)", m, double(mo[0]),
+                      double(mo[1]), double(mo[2]), double(mo[3]));
+        mips += mb;
+      }
+      Trace(ctx, lane, mips);
+    }
   }
   (void)zt4;
 }

@@ -53,6 +53,14 @@ static const RuleInfo kRules[] = {
      "2 -> XYYY, 3 -> XYZZ.",
      "SDK src/graphics/vulkan/texture_cache.cpp:109-330 swizzles "
      "RRRR/RGGG/RGBB"},
+    {"format.1_reverse", 1, RuleStatus::kAssumed,
+     "Format 0 is packed one bit per texel, MSB first within each byte.",
+     "assumed: XDK GPUTEXTUREFORMAT.htm names GPUTEXTUREFORMAT_1_REVERSE but "
+     "does not document storage semantics",
+     "Upload a 16x1 linear GPUTEXTUREFORMAT_1_REVERSE texture with alternating "
+     "bytes 0x80, 0x01; point-fetch texel centres 0..15 into "
+     "k_32_32_32_32_FLOAT with XXXX swizzle and read back. MSB-first predicts "
+     "1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1; LSB-first predicts inverse endpoints."},
     {"norm.unsigned", 1, RuleStatus::kAssumed,
      "Unsigned n-bit fraction = v / (2^n - 1), correctly rounded to f32.",
      "assumed (standard unorm; precision of the Xenos texture pipe "

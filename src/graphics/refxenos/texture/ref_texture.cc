@@ -7,8 +7,16 @@
 #include <cstring>
 
 #include "ref_rules.h"
+#include "core/common.h"
 
 namespace refxenos::tex {
+
+// The XDK assigns format 0 its name but omits the storage description. Model
+// it as a byte-packed 1-bit channel with the first texel in the high bit.
+RX_DEFINE_RULE(depth_texture_1_reverse, 1,
+               "assumed: XDK GPUTEXTUREFORMAT.htm names GPUTEXTUREFORMAT_1_REVERSE but gives no storage semantics; the reverse bit order is modeled as MSB-first",
+               true,
+               "Upload a 16x1 linear GPUTEXTUREFORMAT_1_REVERSE texture with alternating bytes 0x80, 0x01; point-fetch texel centres 0..15 into k_32_32_32_32_FLOAT with XXXX swizzle, then read back. MSB-first predicts 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1; LSB-first predicts the inverse endpoints.");
 
 namespace {
 
@@ -120,7 +128,7 @@ uint32_t Fetch::layers() const {
 
 const FormatInfo& GetFormatInfo(uint32_t format) {
   static const FormatInfo kInfo[64] = {
-      {"1_REVERSE", 1, 1, 1, false},
+      {"1_REVERSE", 8, 1, 8, true},
       {"1", 1, 1, 1, false},
       {"8", 1, 1, 8, true},
       {"1_5_5_5", 1, 1, 16, true},
@@ -656,6 +664,15 @@ bool DecodeBlock(uint32_t format, const uint8_t* b, Texel* t, uint32_t* n,
     }
   };
   switch (format) {
+    case k_1_REVERSE:
+      diag->Use("format.1_reverse");
+      RX_USE(depth_texture_1_reverse);
+      *n = 8;
+      for (uint32_t i = 0; i < 8; ++i) {
+        t[i].count = 1;
+        t[i].c[0] = Fixed((b[0] >> (7 - i)) & 1, 1);
+      }
+      return true;
     case k_8:
     case k_8_A:
     case k_8_B:

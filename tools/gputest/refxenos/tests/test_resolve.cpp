@@ -60,7 +60,9 @@ static RegisterFile Base(Memory& memory, xenos::MsaaSamples msaa = xenos::MsaaSa
   std::memcpy(&rf.values[XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0], &fetch, sizeof(fetch));
   const float vertices[6] = {0, 0, 8, 0, 0, 8};
   for (uint32_t i = 0; i < 6; ++i) {
-    WriteBE32(memory, 0x1000 + 4 * i, xenos::GpuSwap(AsU32(vertices[i]), fetch.endian));
+    // Guest memory stores the float in big-endian byte order. The GPU's
+    // little-endian word load followed by the fetch's 8in32 swap restores it.
+    WriteBE32(memory, 0x1000 + 4 * i, AsU32(vertices[i]));
   }
   rf[XE_GPU_REG_RB_COPY_DEST_BASE] = 0x100000;
   return rf;
@@ -364,6 +366,192 @@ static void TestSampleSelectAndCombinedClear() {
   }
 }
 
+// Regression tests for resolve vertex fetch byte order fix (commit 015dc27e).
+// These tests exercise the exact bug scenario: GPU little-endian dword load
+// followed by fetch 8in32 endian swap. The guest vertex buffer is stored in
+// big-endian byte order (as the Xbox 360 CPU writes it), and the GPU's
+// little-endian load + 8in32 swap must correctly reconstruct the float.
+
+static void TestResolveVertexByteOrder_8in32_NoSwap() {
+  // Test the core fix: 8in32 vertex fetch endian with no destination endian swap.
+  // Vertex buffer at 0x1000, three float2 vertices forming a triangle at (10,20)-(30,20)-(10,40).
+  // Rectangle expands to 8-pixel boundaries: x0=8, y0=16, x1=32, y1=32 -> w=24, h=16.
+  Memory memory;
+  RegisterFile rf = Base(memory);
+  // Override destination to have no endian swap (kNone) to isolate vertex fetch.
+  auto dest = rf.Get<reg::RB_COPY_DEST_INFO>();
+  dest.copy_dest_endian = xenos::Endian128::kNone;
+  Set(rf, dest);
+  // Override vertex buffer with known coordinates (non-zero, non-trivial).
+  const float vertices[6] = {10.0f, 20.0f, 30.0f, 20.0f, 10.0f, 40.0f};
+  for (uint32_t i = 0; i < 6; ++i) {
+    WriteBE32(memory, 0x1000 + 4 * i, AsU32(vertices[i]));
+  }
+  Edram edram;
+  EdramSurface source = Source(rf);
+  // Source color 0xFF0080FF is stored in EDRAM as A=0xFF, B=0x00, G=0x80, R=0xFF (ABGR order).
+  // With kNone dest endian, output bytes are R,G,B,A = 0xFF, 0x80, 0x00, 0xFF.
+  for (uint32_t y = 0; y < 64; ++y)
+    for (uint32_t x = 0; x < 64; ++x)
+      edram.WriteSample(source, x, y, 0, 0xFF0080FFu);
+  ResolveRecord record;
+  DrawStats stats;
+  CHECK(Resolve(rf, edram, memory, &record, stats));
+  // Rectangle after 8-pixel alignment: (8,16)-(32,32) -> width=24, height=16.
+  EQ(record.x0, 8u);
+  EQ(record.y0, 16u);
+  EQ(record.width, 24u);
+  EQ(record.height, 16u);
+  // Check a pixel inside the rectangle (15, 25) has the source color.
+  uint32_t address = 0x100000 + tex::TiledOffset2D(15, 25, 32, 4);
+  const uint8_t* p = memory.At(address);
+  // With kNone dest endian: R=0xFF, G=0x80, B=0x00, A=0xFF
+  EQ(p[0], 0xFFu);
+  EQ(p[1], 0x80u);
+  EQ(p[2], 0x00u);
+  EQ(p[3], 0xFFu);
+}
+
+static void TestResolveVertexByteOrder_8in32_With8in32DestSwap() {
+  // Test 8in32 vertex fetch with 8in32 destination endian (the common case).
+  Memory memory;
+  RegisterFile rf = Base(memory);
+  const float vertices[6] = {10.0f, 20.0f, 30.0f, 20.0f, 10.0f, 40.0f};
+  for (uint32_t i = 0; i < 6; ++i) {
+    WriteBE32(memory, 0x1000 + 4 * i, AsU32(vertices[i]));
+  }
+  Edram edram;
+  EdramSurface source = Source(rf);
+  for (uint32_t y = 0; y < 64; ++y)
+    for (uint32_t x = 0; x < 64; ++x)
+      edram.WriteSample(source, x, y, 0, 0xFF0080FFu);
+  ResolveRecord record;
+  DrawStats stats;
+  CHECK(Resolve(rf, edram, memory, &record, stats));
+  EQ(record.x0, 8u);
+  EQ(record.y0, 16u);
+  EQ(record.width, 24u);
+  EQ(record.height, 16u);
+  // With 8in32 dest endian, bytes within each 32-bit word are reversed: A,B,G,R.
+  uint32_t address = 0x100000 + tex::TiledOffset2D(15, 25, 32, 4);
+  const uint8_t* p = memory.At(address);
+  EQ(p[0], 0xFFu);  // A
+  EQ(p[1], 0x00u);  // B
+  EQ(p[2], 0x80u);  // G
+  EQ(p[3], 0xFFu);  // R
+}
+
+static void TestResolveVertexByteOrder_NonzeroDestBase() {
+  // Test with nonzero destination base address (not 0x100000).
+  // Vertices (5,5)-(15,5)-(5,15) -> rect (0,0)-(16,16) after 8-pixel align.
+  Memory memory;
+  RegisterFile rf = Base(memory);
+  const float vertices[6] = {5.0f, 5.0f, 15.0f, 5.0f, 5.0f, 15.0f};
+  for (uint32_t i = 0; i < 6; ++i) {
+    WriteBE32(memory, 0x1000 + 4 * i, AsU32(vertices[i]));
+  }
+  rf[XE_GPU_REG_RB_COPY_DEST_BASE] = 0x200000;  // Nonzero dest base.
+  Edram edram;
+  EdramSurface source = Source(rf);
+  for (uint32_t y = 0; y < 32; ++y)
+    for (uint32_t x = 0; x < 32; ++x)
+      edram.WriteSample(source, x, y, 0, 0xFF884422u);
+  ResolveRecord record;
+  DrawStats stats;
+  CHECK(Resolve(rf, edram, memory, &record, stats));
+  EQ(record.x0, 0u);
+  EQ(record.y0, 0u);
+  EQ(record.width, 16u);
+  EQ(record.height, 16u);
+  uint32_t address = 0x200000 + tex::TiledOffset2D(7, 7, 32, 4);
+  const uint8_t* p = memory.At(address);
+  // Source 0xFF884422 = A=0xFF, B=0x88, G=0x44, R=0x22. k8in32 dest -> A,B,G,R.
+  EQ(p[0], 0xFFu);
+  EQ(p[1], 0x88u);
+  EQ(p[2], 0x44u);
+  EQ(p[3], 0x22u);
+}
+
+static void TestResolveVertexByteOrder_WithScissor() {
+  // Test with window scissor enabled (non-trivial scissor rectangle).
+  // Triangle (0,0)-(32,0)-(0,32), window scissor (8,8)-(24,24).
+  // Rect from vertices: (0,0)-(32,32). Clipped to scissor: (8,8)-(24,24).
+  // 8-pixel align: (8,8)-(24,24) -> width=16, height=16.
+  Memory memory;
+  RegisterFile rf = Base(memory);
+  const float vertices[6] = {0.0f, 0.0f, 32.0f, 0.0f, 0.0f, 32.0f};
+  for (uint32_t i = 0; i < 6; ++i) {
+    WriteBE32(memory, 0x1000 + 4 * i, AsU32(vertices[i]));
+  }
+  // Enable window scissor: clip to (8,8)-(24,24).
+  auto wtl = rf.Get<reg::PA_SC_WINDOW_SCISSOR_TL>();
+  wtl.window_offset_disable = 0;
+  wtl.tl_x = 8;
+  wtl.tl_y = 8;
+  Set(rf, wtl);
+  auto wbr = rf.Get<reg::PA_SC_WINDOW_SCISSOR_BR>();
+  wbr.br_x = 24;
+  wbr.br_y = 24;
+  Set(rf, wbr);
+  Edram edram;
+  EdramSurface source = Source(rf);
+  for (uint32_t y = 0; y < 32; ++y)
+    for (uint32_t x = 0; x < 32; ++x)
+      edram.WriteSample(source, x, y, 0, 0xFF112233u);
+  ResolveRecord record;
+  DrawStats stats;
+  CHECK(Resolve(rf, edram, memory, &record, stats));
+  EQ(record.x0, 8u);
+  EQ(record.y0, 8u);
+  EQ(record.width, 16u);
+  EQ(record.height, 16u);
+  // Pixel at (10,10) should be inside scissor and triangle.
+  // Source 0xFF112233 = A=0xFF, B=0x11, G=0x22, R=0x33. k8in32 dest -> A,B,G,R.
+  uint32_t address = 0x100000 + tex::TiledOffset2D(10, 10, 32, 4);
+  const uint8_t* p = memory.At(address);
+  EQ(p[0], 0xFFu);
+  EQ(p[1], 0x11u);
+  EQ(p[2], 0x22u);
+  EQ(p[3], 0x33u);
+  // Pixel at (5,5) should be outside scissor (not written).
+  address = 0x100000 + tex::TiledOffset2D(5, 5, 32, 4);
+  p = memory.At(address);
+  EQ(p[0], 0x00u);
+  EQ(p[1], 0x00u);
+  EQ(p[2], 0x00u);
+  EQ(p[3], 0x00u);
+}
+
+static void TestResolveVertexByteOrder_NegativeCoordinates() {
+  // Test with negative vertex coordinates (should be clamped to 0).
+  // Vertices (-10,-5),(10,-5),(-10,10) -> rect (0,0)-(16,16) after 8-pixel align.
+  Memory memory;
+  RegisterFile rf = Base(memory);
+  const float vertices[6] = {-10.0f, -5.0f, 10.0f, -5.0f, -10.0f, 10.0f};
+  for (uint32_t i = 0; i < 6; ++i) {
+    WriteBE32(memory, 0x1000 + 4 * i, AsU32(vertices[i]));
+  }
+  Edram edram;
+  EdramSurface source = Source(rf);
+  for (uint32_t y = 0; y < 32; ++y)
+    for (uint32_t x = 0; x < 32; ++x)
+      edram.WriteSample(source, x, y, 0, 0xFF556677u);
+  ResolveRecord record;
+  DrawStats stats;
+  CHECK(Resolve(rf, edram, memory, &record, stats));
+  EQ(record.x0, 0u);
+  EQ(record.y0, 0u);
+  EQ(record.width, 16u);  // 8-pixel aligned from 0 to 10 -> 16
+  EQ(record.height, 16u); // 8-pixel aligned from 0 to 10 -> 16
+  uint32_t address = 0x100000 + tex::TiledOffset2D(5, 5, 32, 4);
+  const uint8_t* p = memory.At(address);
+  // Source 0xFF556677 = A=0xFF, B=0x55, G=0x66, R=0x77. k8in32 dest -> A,B,G,R.
+  EQ(p[0], 0xFFu);
+  EQ(p[1], 0x55u);
+  EQ(p[2], 0x66u);
+  EQ(p[3], 0x77u);
+}
+
 int main() {
   Test8888Resolve();
   TestAverageAndClear();
@@ -371,6 +559,12 @@ int main() {
   TestGammaExpAndDepth();
   TestFormatConversionAndEndian();
   TestSampleSelectAndCombinedClear();
+  // Regression tests for vertex fetch byte order fix.
+  TestResolveVertexByteOrder_8in32_NoSwap();
+  TestResolveVertexByteOrder_8in32_With8in32DestSwap();
+  TestResolveVertexByteOrder_NonzeroDestBase();
+  TestResolveVertexByteOrder_WithScissor();
+  TestResolveVertexByteOrder_NegativeCoordinates();
   std::printf("resolve: %d checks, %d failures\n", checks, failures);
   return failures != 0;
 }

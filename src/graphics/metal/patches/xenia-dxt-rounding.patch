@@ -1,0 +1,118 @@
+Xenia DXT/DXN interpolation: round to nearest instead of truncating.
+
+The XDK documents the BC interpolants as integer expressions that round to
+nearest:
+
+  DXT1/DXT2-3/DXT4-5 colour  c2 = (2*c0 + c1 + 1) / 3
+                              c3 = (c0 + 2*c1 + 1) / 3
+  DXT5/DXN alpha, 8-step     a  = (k*a0 + (7-k)*a1 + 3) / 7
+  DXT5/DXN alpha, 6-step     a  = (k*a0 + (5-k)*a1 + 2) / 5
+
+XeniOS truncates instead (plain /3, /7 and /5), which puts the Metal BC
+decompression one UNORM8 step below the Xenos reference on real Town fence
+and M1911 textures. The refxenos CPU reference implements the documented
+rounding, so the compute BC path is the one that is wrong.
+
+Applied to the copied Xenia shader tree by
+src/graphics/metal/tools/compile_metal_helpers.py; the upstream dep is not
+modified.
+
+--- a/gpu/shaders/pixel_formats.xesli
++++ b/gpu/shaders/pixel_formats.xesli
+@@ -718,9 +718,9 @@
+   uint4_xe bgr_row_8in10_3x =
+       ((uint_x4_xe(~weights_high) >> weights_shifts) & 3u) * bgr_end_8in10.x +
+       ((uint_x4_xe(weights_high) >> weights_shifts) & 3u) * bgr_end_8in10.y;
+-  return (((bgr_row_8in10_3x & 1023u) / 3u) << 16u) |
+-         ((((bgr_row_8in10_3x >> 10u) & 1023u) / 3u) << 8u) |
+-         ((bgr_row_8in10_3x >> 20u) / 3u);
++  return ((((bgr_row_8in10_3x & 1023u) + 1u) / 3u) << 16u) |
++         (((((bgr_row_8in10_3x >> 10u) & 1023u) + 1u) / 3u) << 8u) |
++         (((bgr_row_8in10_3x >> 20u) + 1u) / 3u);
+ }
+ 
+ // Sort the color indices of four transparent DXT1 blocks so bits of them can be
+@@ -903,13 +903,13 @@
+ uint XeDXT58StepRowToA8(uint2_xe end, uint weights_high) {
+   uint weights_low = ~weights_high;
+   return
+-      ((end.x * (weights_low & 7u) + end.y * (weights_high & 7u)) / 7u) |
+-      (((end.x * ((weights_low >> 3u) & 7u) +
+-         end.y * ((weights_high >> 3u) & 7u)) / 7u) << 8u) |
+-      (((end.x * ((weights_low >> 6u) & 7u) +
+-         end.y * ((weights_high >> 6u) & 7u)) / 7u) << 16u) |
+-      (((end.x * ((weights_low >> 9u) & 7u) +
+-         end.y * ((weights_high >> 9u) & 7u)) / 7u) << 24u);
++      (((end.x * (weights_low & 7u) + end.y * (weights_high & 7u)) + 3u) / 7u) |
++      ((((end.x * ((weights_low >> 3u) & 7u) +
++         end.y * ((weights_high >> 3u) & 7u)) + 3u) / 7u) << 8u) |
++      ((((end.x * ((weights_low >> 6u) & 7u) +
++         end.y * ((weights_high >> 6u) & 7u)) + 3u) / 7u) << 16u) |
++      ((((end.x * ((weights_low >> 9u) & 7u) +
++         end.y * ((weights_high >> 9u) & 7u)) + 3u) / 7u) << 24u);
+ }
+ 
+ // Version of XeDXT58StepRowToA8 that returns values packed in low 8 bits of
+@@ -917,13 +917,13 @@
+ uint2_xe XeDXT58StepRowToA8In16(uint2_xe end, uint weights_high) {
+   uint weights_low = ~weights_high;
+   return uint2_xe(
+-      ((end.x * (weights_low & 7u) + end.y * (weights_high & 7u)) / 7u) |
+-      (((end.x * ((weights_low >> 3u) & 7u) +
+-         end.y * ((weights_high >> 3u) & 7u)) / 7u) << 16u),
+-      ((end.x * ((weights_low >> 6u) & 7u) +
+-        end.y * ((weights_high >> 6u) & 7u)) / 7u) |
+-      (((end.x * ((weights_low >> 9u) & 7u) +
+-         end.y * ((weights_high >> 9u) & 7u)) / 7u) << 16u));
++      (((end.x * (weights_low & 7u) + end.y * (weights_high & 7u)) + 3u) / 7u) |
++      ((((end.x * ((weights_low >> 3u) & 7u) +
++         end.y * ((weights_high >> 3u) & 7u)) + 3u) / 7u) << 16u),
++      (((end.x * ((weights_low >> 6u) & 7u) +
++        end.y * ((weights_high >> 6u) & 7u)) + 3u) / 7u) |
++      ((((end.x * ((weights_low >> 9u) & 7u) +
++         end.y * ((weights_high >> 9u) & 7u)) + 3u) / 7u) << 16u));
+ }
+ 
+ // Get alphas of a DXT5 alpha row in alpha0 <= alpha1 mode. Endpoint alphas are
+@@ -942,13 +942,13 @@
+   uint weights_low = ((5u * 0x249u) - weights_high) & ~is_constant;
+   // Interpolate.
+   uint row =
+-      ((end.x * (weights_low & 7u) + end.y * (weights_high & 7u)) / 5u) |
+-      (((end.x * ((weights_low >> 3u) & 7u) +
+-         end.y * ((weights_high >> 3u) & 7u)) / 5u) << 8u) |
+-      (((end.x * ((weights_low >> 6u) & 7u) +
+-         end.y * ((weights_high >> 6u) & 7u)) / 5u) << 16u) |
+-      (((end.x * ((weights_low >> 9u) & 7u) +
+-         end.y * ((weights_high >> 9u) & 7u)) / 5u) << 24u);
++      (((end.x * (weights_low & 7u) + end.y * (weights_high & 7u)) + 2u) / 5u) |
++      ((((end.x * ((weights_low >> 3u) & 7u) +
++         end.y * ((weights_high >> 3u) & 7u)) + 2u) / 5u) << 8u) |
++      ((((end.x * ((weights_low >> 6u) & 7u) +
++         end.y * ((weights_high >> 6u) & 7u)) + 2u) / 5u) << 16u) |
++      ((((end.x * ((weights_low >> 9u) & 7u) +
++         end.y * ((weights_high >> 9u) & 7u)) + 2u) / 5u) << 24u);
+   // Get the constant values as 1 bit per pixel separated by 7 bits.
+   uint constant_values = weights_6step & is_constant;
+   constant_values = (constant_values & 1u) |
+@@ -973,13 +973,13 @@
+   uint weights_low = ((5u * 0x249u) - weights_high) & ~is_constant;
+   // Interpolate.
+   uint2_xe row = uint2_xe(
+-      ((end.x * (weights_low & 7u) + end.y * (weights_high & 7u)) / 5u) |
+-      (((end.x * ((weights_low >> 3u) & 7u) +
+-         end.y * ((weights_high >> 3u) & 7u)) / 5u) << 16u),
+-      ((end.x * ((weights_low >> 6u) & 7u) +
+-        end.y * ((weights_high >> 6u) & 7u)) / 5u) |
+-      (((end.x * ((weights_low >> 9u) & 7u) +
+-         end.y * ((weights_high >> 9u) & 7u)) / 5u) << 16u));
++      (((end.x * (weights_low & 7u) + end.y * (weights_high & 7u)) + 2u) / 5u) |
++      ((((end.x * ((weights_low >> 3u) & 7u) +
++         end.y * ((weights_high >> 3u) & 7u)) + 2u) / 5u) << 16u),
++      (((end.x * ((weights_low >> 6u) & 7u) +
++        end.y * ((weights_high >> 6u) & 7u)) + 2u) / 5u) |
++      ((((end.x * ((weights_low >> 9u) & 7u) +
++         end.y * ((weights_high >> 9u) & 7u)) + 2u) / 5u) << 16u));
+   // Get the constant values as 1 bit per pixel separated by 7 bits.
+   uint constant_weights = weights_6step & is_constant;
+   uint2_xe constant_values = uint2_xe(

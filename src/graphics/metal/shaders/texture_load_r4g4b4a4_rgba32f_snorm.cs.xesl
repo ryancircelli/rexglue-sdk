@@ -1,0 +1,4 @@
+#include "pixel_formats.xesli"
+#include "packed_snorm_formats.xesli"
+#define XE_TEXTURE_LOAD_16BPB_TO_128BPB XeR4G4B4A4SNormToRGBA32F
+#include "texture_load_packed16_to_rgba32.xesli"

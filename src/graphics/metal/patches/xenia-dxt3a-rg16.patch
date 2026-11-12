@@ -1,0 +1,153 @@
+--- a/gpu/shaders/pixel_formats.xesli
++++ b/gpu/shaders/pixel_formats.xesli
+@@ -775,6 +775,25 @@
+          ((alphas & 0xF000u) << 16u);
+ }
+
++// Pack four DXT3 alpha nibbles into RG16 values. R stores the exact unsigned
++// 4-bit fraction expanded to UNORM16; G stores the signed interpretation
++// expanded to SNORM16. 65535 / 15 and 32767 / 7 are exact integers.
++uint XeDXT3AByteToRG16(uint alpha_byte) {
++  uint nibble = alpha_byte & 15u;
++  uint unorm = nibble * 4369u;
++  int signed_nibble = int(nibble) - ((nibble & 8u) != 0u ? 16 : 0);
++  signed_nibble = max(signed_nibble, -7);
++  uint snorm = uint(signed_nibble * 4681) & 0xFFFFu;
++  return unorm | (snorm << 16u);
++}
++uint4_xe XeDXT3AByteWordToRG16(uint packed_alpha_bytes) {
++  return uint4_xe(
++      XeDXT3AByteToRG16(packed_alpha_bytes),
++      XeDXT3AByteToRG16(packed_alpha_bytes >> 8u),
++      XeDXT3AByteToRG16(packed_alpha_bytes >> 16u),
++      XeDXT3AByteToRG16(packed_alpha_bytes >> 24u));
++}
++
+ uint4_xe XeDXT3AAs1111TwoBlocksRowToBGRA4(uint2_xe halfblocks) {
+   // Only 16 bits of half-blocks are used. X contains pixels 0123, Y - 4567 (in
+   // the image, halfblocks.y is halfblocks.x + 8).
+@@ -778,26 +797,27 @@
+ uint4_xe XeDXT3AAs1111TwoBlocksRowToBGRA4(uint2_xe halfblocks) {
+   // Only 16 bits of half-blocks are used. X contains pixels 0123, Y - 4567 (in
+   // the image, halfblocks.y is halfblocks.x + 8).
+   // In the row, X contains pixels 01, Y - 23, Z - 45, W - 67.
+   // Assuming alpha in LSB and red in MSB, because it's consistent with how
+   // DXT1/DXT3/DXT5 color components and CTX1 X/Y are ordered in:
+   // http://fileadmin.cs.lth.se/cs/Personal/Michael_Doggett/talks/unc-xenos-doggett.pdf
+   // (LSB on the right, MSB on the left.)
+   // TODO(Triang3l): Investigate this better, 4D53085B is the only known game
+   // that uses it (for lighting in certain places - one of easy to notice usages
+   // is the T-shaped (or somewhat H-shaped) metal beams in the beginning of the
+   // first mission), however the contents don't say anything about the channel
+   // order.
+-  uint4_xe row =
+-      (((halfblocks.xxyy >> uint2_xe(3u, 11u).xyxy) & 1u) << 8u) |
+-      (((halfblocks.xxyy >> uint2_xe(7u, 15u).xyxy) & 1u) << 24u) |
+-      (((halfblocks.xxyy >> uint2_xe(2u, 10u).xyxy) & 1u) << 4u) |
+-      (((halfblocks.xxyy >> uint2_xe(6u, 14u).xyxy) & 1u) << 20u) |
+-      ((halfblocks.xxyy >> uint2_xe(1u, 9u).xyxy) & 1u) |
+-      (((halfblocks.xxyy >> uint2_xe(5u, 13u).xyxy) & 1u) << 16u) |
+-      (((halfblocks.xxyy >> uint2_xe(0u, 8u).xyxy) & 1u) << 12u) |
+-      (((halfblocks.xxyy >> uint2_xe(4u, 12u).xyxy) & 1u) << 28u);
+-  row |= row << 1u;
+-  row |= row << 2u;
+-  return row;
++  uint4_xe alpha = XeDXT3FourBlocksRowToA8(
++      uint4_xe(halfblocks.x, 0u, halfblocks.y, 0u));
++  uint4_xe alpha_pixels = uint4_xe(alpha.x, alpha.x >> 16u, alpha.z,
++                                   alpha.z >> 16u);
++  uint4_xe a0 = alpha_pixels & 15u;
++  uint4_xe a1 = (alpha_pixels >> 8u) & 15u;
++  uint4_xe row = ((a0 & 1u) << 12u) | ((a0 & 8u) << 5u) |
++                  ((a0 & 4u) << 2u) | ((a0 & 2u) >> 1u) |
++                  ((a1 & 1u) << 28u) | ((a1 & 8u) << 21u) |
++                  ((a1 & 4u) << 18u) | ((a1 & 2u) << 15u);
++  row |= row << 1u;
++  row |= row << 2u;
++  return row;
+ }
+--- a/gpu/shaders/texture_load_dxt3a.cs.xesl
++++ b/gpu/shaders/texture_load_dxt3a.cs.xesl
+@@ -12,7 +12,7 @@
+
+ XE_TEXTURE_LOAD_ENTRY(16)
+ {
+-  // 1 thread = 4 DXT3A blocks to 16x4 R8 texels (no need to convert to DXT3
++  // 1 thread = 4 DXT3A blocks to 16x4 RG16 texels (no need to convert to DXT3
+   // because the overhead is the same, 2x, but the size must be 4-aligned on
+   // Direct3D 12).
+   XeTextureLoadInfo load_info = XeTextureLoadGetInfo(pass_push_consts_xe);
+@@ -26,7 +26,7 @@
+       load_info.host_offset +
+       uint(XeTextureHostLinearOffset(int3_xe(texel_index_host),
+                                      load_info.host_pitch,
+-                                     load_info.height_texels, 1u));
++                                     load_info.height_texels, 4u));
+   uint block_offset_guest =
+       XeTextureLoadSourceAddress(load_info, block_index, 3u);
+   uint4_xe blocks_01 = XeEndianSwap32(
+@@ -37,25 +37,51 @@
+   uint4_xe blocks_23 = XeEndianSwap32(
+       byte_buffer_align16_load16_xe(xe_texture_load_source, block_offset_guest),
+       load_info.endian_32);
+-  byte_buffer_align16_store16_xe(
+-      xe_texture_load_dest, block_offset_host,
+-      XeDXT3FourBlocksRowToA8(uint4_xe(blocks_01.xz, blocks_23.xz)));
++  uint4_xe alpha_row =
++      XeDXT3FourBlocksRowToA8(uint4_xe(blocks_01.xz, blocks_23.xz));
++  byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host,
++                                 XeDXT3AByteWordToRG16(alpha_row.x));
++  byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host + 16u,
++                                 XeDXT3AByteWordToRG16(alpha_row.y));
++  byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host + 32u,
++                                 XeDXT3AByteWordToRG16(alpha_row.z));
++  byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host + 48u,
++                                 XeDXT3AByteWordToRG16(alpha_row.w));
+   dont_flatten_xe if (++texel_index_host.y < load_info.height_texels) {
+     block_offset_host += load_info.host_pitch;
+-    byte_buffer_align16_store16_xe(
+-        xe_texture_load_dest, block_offset_host,
+-        XeDXT3FourBlocksRowToA8(uint4_xe(blocks_01.xz, blocks_23.xz) >> 16u));
++    alpha_row = XeDXT3FourBlocksRowToA8(
++        uint4_xe(blocks_01.xz, blocks_23.xz) >> 16u);
++    byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host,
++                                   XeDXT3AByteWordToRG16(alpha_row.x));
++    byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host + 16u,
++                                   XeDXT3AByteWordToRG16(alpha_row.y));
++    byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host + 32u,
++                                   XeDXT3AByteWordToRG16(alpha_row.z));
++    byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host + 48u,
++                                   XeDXT3AByteWordToRG16(alpha_row.w));
+     dont_flatten_xe if (++texel_index_host.y < load_info.height_texels) {
+       block_offset_host += load_info.host_pitch;
+-      byte_buffer_align16_store16_xe(
+-          xe_texture_load_dest, block_offset_host,
+-          XeDXT3FourBlocksRowToA8(uint4_xe(blocks_01.yw, blocks_23.yw)));
++      alpha_row = XeDXT3FourBlocksRowToA8(uint4_xe(blocks_01.yw, blocks_23.yw));
++      byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host,
++                                     XeDXT3AByteWordToRG16(alpha_row.x));
++      byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host + 16u,
++                                     XeDXT3AByteWordToRG16(alpha_row.y));
++      byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host + 32u,
++                                     XeDXT3AByteWordToRG16(alpha_row.z));
++      byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host + 48u,
++                                     XeDXT3AByteWordToRG16(alpha_row.w));
+       dont_flatten_xe if (++texel_index_host.y < load_info.height_texels) {
+         block_offset_host += load_info.host_pitch;
+-        byte_buffer_align16_store16_xe(
+-            xe_texture_load_dest, block_offset_host,
+-            XeDXT3FourBlocksRowToA8(
+-                uint4_xe(blocks_01.yw, blocks_23.yw) >> 16u));
++        alpha_row = XeDXT3FourBlocksRowToA8(
++            uint4_xe(blocks_01.yw, blocks_23.yw) >> 16u);
++        byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host,
++                                       XeDXT3AByteWordToRG16(alpha_row.x));
++        byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host + 16u,
++                                       XeDXT3AByteWordToRG16(alpha_row.y));
++        byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host + 32u,
++                                       XeDXT3AByteWordToRG16(alpha_row.z));
++        byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host + 48u,
++                                       XeDXT3AByteWordToRG16(alpha_row.w));
+       }
+     }
+   }

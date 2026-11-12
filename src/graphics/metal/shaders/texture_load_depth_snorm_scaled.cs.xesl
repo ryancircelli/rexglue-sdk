@@ -1,0 +1,4 @@
+/** Resolution-scaled signed 24-bit depth texture materialization for Metal. */
+
+#define XE_TEXTURE_LOAD_RESOLUTION_SCALED
+#include "texture_load_depth_snorm.cs.xesl"

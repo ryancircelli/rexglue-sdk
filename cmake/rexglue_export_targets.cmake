@@ -25,6 +25,10 @@ if(REXGLUE_USE_D3D12)
     list(APPEND REXGLUE_INSTALL_TARGETS dxc-headers)
 endif()
 
+if(REXGLUE_USE_METAL)
+    list(APPEND REXGLUE_INSTALL_TARGETS rexgpu-metal)
+endif()
+
 if(REXGLUE_ENABLE_TRACY)
     list(APPEND REXGLUE_INSTALL_TARGETS TracyClient)
 endif()

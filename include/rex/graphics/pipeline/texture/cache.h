@@ -423,6 +423,13 @@ class TextureCache {
     kLoadShaderIndexCTX1,
     kLoadShaderIndexDepthUnorm,
     kLoadShaderIndexDepthFloat,
+    kLoadShaderIndexDepthSNorm,
+    kLoadShaderIndexR5G5B5A1ToRGBA32FSNorm,
+    kLoadShaderIndexR5G6B5ToRGBA32FSNorm,
+    kLoadShaderIndexR5G5B6ToRGBA32FSNorm,
+    kLoadShaderIndexR4G4B4A4ToRGBA32FSNorm,
+    kLoadShaderIndexR2G10B10A10ToRGBA32FSNorm,
+    kLoadShaderIndexDXT3ToRGBA32FSNorm,
 
     kLoadShaderCount,
     kLoadShaderIndexUnknown = kLoadShaderCount,

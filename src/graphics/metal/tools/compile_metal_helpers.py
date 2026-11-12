@@ -1,0 +1,221 @@
+"""Compile XeniOS's built-in Metal helpers using its shader_cc MSL arguments.
+
+Adapted from Fable II Recomp for macOS (MIT), tools/compile_metal_helpers.py.
+Usage: compile_metal_helpers.py <xenios-source dir> <generated dir> [jobs]
+Writes <generated>/rex/{graphics,ui}/shaders/bytecode/metal/<name>.h.
+"""
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import tempfile
+
+import sys
+xenios_root=Path(sys.argv[1]).resolve()
+root=Path(sys.argv[2]).resolve()
+max_jobs=int(sys.argv[3]) if len(sys.argv)>3 else 4
+# Xcode 27's default wrapper may ignore the installed asset toolchain.
+def metal_toolchain_bin():
+ try:
+  component=__import__('json').loads(subprocess.check_output(['xcodebuild','-showComponent','MetalToolchain','-json'],text=True))
+  return Path(component['toolchainSearchPath'])/'Metal.xctoolchain/usr/bin'
+ except Exception:
+  # xcodebuild's MobileAsset query is unavailable in some sessions (it needs a
+  # normal user session); xcrun still resolves the same cryptex-mounted asset
+  # toolchain.
+  found=subprocess.check_output(['xcrun','-sdk','macosx','--find','metal'],text=True).strip()
+  return Path(found).parent
+metal_bin=metal_toolchain_bin()
+xenia=xenios_root/'src/xenia'
+
+# BC (DXT1/2-3/4-5/DXN) interpolation must round to nearest, as the XDK
+# documents it; XeniOS truncates, which puts the Metal compute BC decoder one
+# UNORM8 step below the Xenos reference. The upstream dep is not modified: the
+# BC load shaders are compiled from a patched copy of the Xenia shader tree.
+metal_dir=Path(__file__).resolve().parents[1]
+dxt_patch=metal_dir/'patches/xenia-dxt-rounding.patch'
+endian_patch=metal_dir/'patches/xenia-texture-endian.patch'
+dxt3a_patch=metal_dir/'patches/xenia-dxt3a-rg16.patch'
+hendeca_patch=metal_dir/'patches/xenia-hendeca-rgba32f.patch'
+overlay=root/'xenia-shaders'
+bc_shaders={
+ 'texture_load_dxt1_rgba8.cs.xesl',
+ 'texture_load_dxt3_rgba8.cs.xesl',
+ 'texture_load_dxt5_rgba8.cs.xesl',
+ 'texture_load_dxn_rg8.cs.xesl',
+ 'texture_load_dxt3a.cs.xesl',
+ 'texture_load_dxt5a_r8.cs.xesl',
+ 'texture_load_dxt3aas1111_argb4.cs.xesl',
+ 'texture_load_dxt3aas1111_bgra4.cs.xesl',
+}
+
+def prepare_overlay():
+ """Copy the Xenia shader tree and apply the DXT rounding patch to the copy."""
+ patch_tool=shutil.which('patch')
+ if not patch_tool:
+  raise SystemExit('compile_metal_helpers.py: the patch tool is required')
+ for area in ['gpu','ui']:
+  src=xenia/area/'shaders'
+  dst=overlay/area/'shaders'
+  if dst.exists():shutil.rmtree(dst)
+  dst.parent.mkdir(parents=True,exist_ok=True)
+  shutil.copytree(src,dst)
+ for shader_patch in (dxt_patch,endian_patch,dxt3a_patch,hendeca_patch):
+  result=subprocess.run(
+   [patch_tool,'--batch','--no-backup-if-mismatch','-p1','-i',str(shader_patch)],
+   cwd=overlay,capture_output=True,text=True)
+  if result.returncode:
+   raise SystemExit('compile_metal_helpers.py: '+str(shader_patch)+' does not apply:\n'+
+                    result.stdout+result.stderr)
+
+prepare_overlay()
+
+jobs=[]
+for area in ['gpu','ui']:
+ for p in (xenia/area/'shaders').glob('*.xesl'):
+  if ('ffx_' in p.name or 'fxaa' in p.name) or not re.search(r'\.(vs|ps|cs)\.xesl$',p.name):continue
+  if area=='gpu' and p.name in bc_shaders:
+   # Compile from the patched copy; the original tree stays the fallback for
+   # any include the copy does not carry.
+   jobs.append(('gpu',overlay/'gpu/shaders'/p.name,p.stem.replace('.','_'),[],
+                [xenia/'gpu/shaders'],
+                [dxt_patch,endian_patch,dxt3a_patch,hendeca_patch,
+                 xenia/'gpu/shaders/pixel_formats.xesli',
+                 xenia/'gpu/shaders/texture_load.xesli',
+                 xenia/'gpu/shaders/texture_load_dxt3aas1111.xesli',
+                 p]))
+  else:
+   deps=[p]
+   shader_source=p
+   includes=[]
+   if area=='gpu' and p.name.startswith('texture_load_'):
+    deps.extend([endian_patch,dxt3a_patch,hendeca_patch])
+    shader_source=overlay/'gpu/shaders'/p.name
+    includes=[overlay/'gpu/shaders',xenia/'gpu/shaders']
+   jobs.append((area,shader_source,p.stem.replace('.','_'),[],includes,deps))
+for uint in [0,1]:
+ for full,bpps in [(False,[32,64]),(True,[8,16,32,64,128])]:
+  for bpp in bpps:
+   for msaa in [1,2,4]:
+    for scaled in [False,True]:
+     stem='resolve_host_color'+('_full' if full else '')
+     prefix='XE_RESOLVE_HOST_COLOR_FULL_DEST' if full else 'XE_RESOLVE_HOST_COLOR'
+     name=stem+('_uint' if uint else '')+f'_{bpp}bpp_{msaa}xmsaa'+('_scaled' if scaled else '')+'_cs'
+     defines=[f'{prefix}_BPP={bpp}',f'XE_RESOLVE_HOST_COLOR_MSAA_SAMPLES={msaa}',f'XE_RESOLVE_HOST_COLOR_SOURCE_UINT={uint}']
+     if scaled:defines+=['XE_RESOLVE_RESOLUTION_SCALED=1']
+     jobs.append(('gpu',xenia/'gpu/shaders'/(stem+'_entry.xesli'),name,defines))
+for msaa in [1,2,4]:
+ for scaled in [False,True]:
+  name=f'resolve_host_depth_32bpp_{msaa}xmsaa'+('_scaled' if scaled else '')+'_cs'
+  defines=[f'XE_RESOLVE_HOST_DEPTH_MSAA_SAMPLES={msaa}']
+  if scaled:defines+=['XE_RESOLVE_RESOLUTION_SCALED=1']
+  jobs.append(('gpu',xenia/'gpu/shaders/resolve_host_depth_entry.xesli',name,defines))
+jobs.append(('gpu',xenia/'gpu/shaders/texture_upload_repack.metal','texture_upload_repack',[]))
+# [tex-load-direct] resolution-scaled loads that write the host texture directly
+# (tracked wrapper around the unmodified XeniOS sources; rebuilt when it changes).
+wrapper=Path(__file__).resolve().parents[1]/'shaders/texture_load_dest_texture.metal'
+for p in sorted((xenia/'gpu/shaders').glob('texture_load_*_scaled.cs.xesl')):
+ jobs.append(('gpu',wrapper,p.name[:-len('.cs.xesl')]+'_tex_cs',[f'XE_TEX_LOAD_SOURCE="{p.name}"'],[overlay/'gpu/shaders',xenia/'gpu/shaders'],[wrapper,p,endian_patch]))
+# [resolve-to-texture] scaled host resolves that also write the sampled texture
+# (tracked wrapper around the unmodified XeniOS resolve entries).
+rtt_wrapper=Path(__file__).resolve().parents[1]/'shaders/resolve_dest_texture.metal'
+for uint in [0,1]:
+ for full,bpps in [(False,[32,64]),(True,[8,16,32,64])]:
+  for bpp in bpps:
+   for msaa in [1,2,4]:
+    stem='resolve_host_color'+('_full' if full else '')
+    prefix='XE_RESOLVE_HOST_COLOR_FULL_DEST' if full else 'XE_RESOLVE_HOST_COLOR'
+    # [rtt-1x] unscaled variants too (shared-memory destination).
+    for scaled in [True,False]:
+     name=stem+('_uint' if uint else '')+f'_{bpp}bpp_{msaa}xmsaa'+('_scaled' if scaled else '')+'_rtt_cs'
+     defines=[f'{prefix}_BPP={bpp}',f'XE_RESOLVE_HOST_COLOR_MSAA_SAMPLES={msaa}',f'XE_RESOLVE_HOST_COLOR_SOURCE_UINT={uint}',f'XE_RTT_ENTRY="{stem}_entry.xesli"']
+     if scaled:defines.append('XE_RESOLVE_RESOLUTION_SCALED=1')
+     jobs.append(('gpu',rtt_wrapper,name,defines,[xenia/'gpu/shaders']))
+for msaa in [1,2,4]:
+ jobs.append(('gpu',rtt_wrapper,f'resolve_host_depth_32bpp_{msaa}xmsaa_scaled_rtt_cs',[f'XE_RESOLVE_HOST_DEPTH_MSAA_SAMPLES={msaa}','XE_RESOLVE_RESOLUTION_SCALED=1','XE_RTT_ENTRY="resolve_host_depth_entry.xesli"'],[xenia/'gpu/shaders']))
+ jobs.append(('gpu',rtt_wrapper,f'resolve_host_depth_32bpp_{msaa}xmsaa_rtt_cs',[f'XE_RESOLVE_HOST_DEPTH_MSAA_SAMPLES={msaa}','XE_RTT_ENTRY="resolve_host_depth_entry.xesli"'],[xenia/'gpu/shaders']))
+# [tile-resolve] colour resolves as tile functions inside the draw pass (float
+# source views, 1x/2x/4x MSAA; docs/tile-resolve-20261013.md). Same defines as the fused
+# compute variant; rebuilt when any of the wrapper files changes.
+tile_wrapper=rtt_wrapper.parent/'resolve_tile.metal'
+tile_deps=[tile_wrapper,tile_wrapper.parent/'resolve_tile_entry.inc',rtt_wrapper]
+# Integer source views: only the full-destination 64bpp case games use
+# (bo2 HDR luminance chain, 1x MSAA).
+tile_variants=[(full,bpp,0) for full,bpps in [(False,[32,64]),(True,[8,16,32,64])] for bpp in bpps]+[(True,64,1)]
+for full,bpp,uint in tile_variants:
+  stem='resolve_host_color'+('_full' if full else '')
+  prefix='XE_RESOLVE_HOST_COLOR_FULL_DEST' if full else 'XE_RESOLVE_HOST_COLOR'
+  for msaa in ([1] if uint else [1,2,4]):
+   for scaled in [True,False]:
+    name=stem+('_uint' if uint else '')+f'_{bpp}bpp_{msaa}xmsaa'+('_scaled' if scaled else '')+'_rtt_tile'
+    defines=[f'{prefix}_BPP={bpp}',f'XE_RESOLVE_HOST_COLOR_MSAA_SAMPLES={msaa}',f'XE_RESOLVE_HOST_COLOR_SOURCE_UINT={uint}']
+    if scaled:defines.append('XE_RESOLVE_RESOLUTION_SCALED=1')
+    jobs.append(('gpu',tile_wrapper,name,defines,[xenia/'gpu/shaders'],tile_deps))
+# Signed 24-bit depth loads materialize clamped SNORM values in R32Float.
+depth_snorm=metal_dir/'shaders/texture_load_depth_snorm.cs.xesl'
+depth_snorm_scaled=metal_dir/'shaders/texture_load_depth_snorm_scaled.cs.xesl'
+jobs.append(('gpu',depth_snorm,'texture_load_depth_snorm_cs',[],
+             [xenia/'gpu/shaders'],[depth_snorm,endian_patch]))
+jobs.append(('gpu',depth_snorm_scaled,'texture_load_depth_snorm_scaled_cs',[],
+             [xenia/'gpu/shaders'],[depth_snorm_scaled,endian_patch]))
+
+packed_snorm_shader_specs = [
+ ('r5g5b5a1', 'texture_load_r5g5b5a1_rgba32f_snorm'),
+ ('r5g6b5', 'texture_load_r5g6b5_rgba32f_snorm'),
+ ('r5g5b6', 'texture_load_r5g5b6_rgba32f_snorm'),
+ ('r4g4b4a4', 'texture_load_r4g4b4a4_rgba32f_snorm'),
+ ('r2g10b10a10', 'texture_load_r2g10b10a10_rgba32f_snorm'),
+]
+packed_snorm_deps = [
+ metal_dir/'shaders/packed_snorm_formats.xesli',
+ metal_dir/'shaders/texture_load_packed16_to_rgba32.xesli',
+ overlay/'gpu/shaders/texture_load_32bpb_64bpb.xesli',
+ hendeca_patch,
+ xenia/'gpu/shaders/pixel_formats.xesli',
+ xenia/'gpu/shaders/texture_load.xesli',
+ xenia/'gpu/shaders/texture_load_32bpb_64bpb.xesli',
+]
+for _, stem in packed_snorm_shader_specs:
+ for scaled in [False, True]:
+  source = metal_dir/'shaders'/(stem+('_scaled' if scaled else '')+'.cs.xesl')
+  name = source.name.replace('.cs.xesl', '_cs')
+  jobs.append(('gpu',source,name,[],[overlay/'gpu/shaders',xenia/'gpu/shaders'],
+               [source]+packed_snorm_deps))
+dxt3_snorm_deps = [
+ metal_dir/'shaders/packed_snorm_formats.xesli',
+ overlay/'gpu/shaders/pixel_formats.xesli',
+ overlay/'gpu/shaders/texture_load.xesli',
+ xenia/'gpu/shaders',
+]
+for scaled in [False, True]:
+ source = metal_dir/'shaders'/('texture_load_dxt3_rgba32f_snorm'+('_scaled' if scaled else '')+'.cs.xesl')
+ name = source.name.replace('.cs.xesl', '_cs')
+ jobs.append(('gpu',source,name,[],[overlay/'gpu/shaders',xenia/'gpu/shaders',metal_dir/'shaders'],
+              [source]+dxt3_snorm_deps))
+
+def compile(job):
+ area,source,name,defines=job[:4]
+ includes=job[4] if len(job)>4 else []
+ deps=job[5] if len(job)>5 else [source]
+ dest=root/'rex'/area.replace('gpu','graphics')/'shaders/bytecode/metal'/(name+'.h')
+ if dest.exists() and (not includes or dest.stat().st_mtime>=max(d.stat().st_mtime for d in deps)):return None
+ dest.parent.mkdir(parents=True,exist_ok=True)
+ with tempfile.TemporaryDirectory(prefix='fable-metal-helper-') as tmp:
+  air=Path(tmp)/'shader.air';lib=Path(tmp)/'shader.metallib'
+  cmd=[str(metal_bin/'metal'),'-x','metal','-std=macos-metal2.3','-mmacosx-version-min=15.0','-D','SHADING_LANGUAGE_MSL_XE=1','-w','-I',str(source.parent)]
+  for inc in includes:cmd+=['-I',str(inc)]
+  for d in defines:cmd+=['-D',d]
+  cmd+=['-c',str(source),'-o',str(air)]
+  result=subprocess.run(cmd,capture_output=True,text=True)
+  if result.returncode:return name+': '+result.stderr
+  result=subprocess.run([str(metal_bin/'metallib'),str(air),'-o',str(lib)],capture_output=True,text=True)
+  if result.returncode:return name+': '+result.stderr
+  data=lib.read_bytes()
+  dest.write_text('#pragma once\n#include <cstdint>\nconst uint8_t '+name+'_metallib[] = {\n'+','.join(str(v) for v in data)+'\n};\n')
+ return None
+with ThreadPoolExecutor(max_workers=max_jobs) as pool:errors=[e for e in pool.map(compile,jobs) if e]
+(root/'helper-errors.log').write_text('\n'.join(errors))
+print('Helper jobs:',len(jobs),'failed:',len(errors))
+if errors:print('\n'.join(errors[:3]))
+raise SystemExit(bool(errors))

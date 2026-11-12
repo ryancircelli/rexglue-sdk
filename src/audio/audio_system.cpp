@@ -107,8 +107,9 @@ void AudioSystem::WorkerThreadMain() {
 
   // Main run loop.
   uint32_t diag_pump_count = 0;
-  // Timing of the guest audio callback, reported every 10 s: one callback should produce one 256-sample frame, so
-  // it has 5.33 ms of real time. Calls that take longer leave the SDL queue to drain.
+  // Timing of the guest audio callback, reported every 10 s: one callback should produce one
+  // 256-sample frame, so it has 5.33 ms of real time. Calls that take longer leave the SDL queue to
+  // drain.
   uint64_t cb_count = 0, cb_slow = 0;
   double cb_total_ms = 0, cb_max_ms = 0, wait_total_ms = 0;
   auto cb_report_time = std::chrono::steady_clock::now();
@@ -120,8 +121,8 @@ void AudioSystem::WorkerThreadMain() {
     sched_param param{};
     int policy = 0;
     pthread_getschedparam(pthread_self(), &policy, &param);
-    REXAPU_INFO("[audio] Audio Worker thread: QoS class 0x{:X}, policy {}, priority {}", uint32_t(qos), policy,
-                param.sched_priority);
+    REXAPU_INFO("[audio] Audio Worker thread: QoS class 0x{:X}, policy {}, priority {}",
+                uint32_t(qos), policy, param.sched_priority);
   }
 #endif
   while (worker_running_) {
@@ -174,16 +175,19 @@ void AudioSystem::WorkerThreadMain() {
         function_dispatcher_->Execute(worker_thread_->thread_state(), client_callback, args,
                                       rex::countof(args));
         const double ms =
-            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - wait_end).count();
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - wait_end)
+                .count();
         ++cb_count;
         cb_total_ms += ms;
         cb_max_ms = std::max(cb_max_ms, ms);
         cb_slow += ms > 5.333;
         if (wait_end - cb_report_time >= std::chrono::seconds(10)) {
-          REXAPU_INFO("[audio] guest callbacks in 10 s: {}, {:.2f} ms average, longest {:.2f} ms, {} over 5.33 ms; "
-                      "worker waited {:.0f} ms for the queue",
-                      cb_count, cb_total_ms / double(std::max<uint64_t>(cb_count, 1)), cb_max_ms, cb_slow,
-                      wait_total_ms);
+          REXAPU_INFO(
+              "[audio] guest callbacks in 10 s: {}, {:.2f} ms average, longest {:.2f} ms, {} over "
+              "5.33 ms; "
+              "worker waited {:.0f} ms for the queue",
+              cb_count, cb_total_ms / double(std::max<uint64_t>(cb_count, 1)), cb_max_ms, cb_slow,
+              wait_total_ms);
           cb_count = cb_slow = 0;
           cb_total_ms = cb_max_ms = wait_total_ms = 0;
           cb_report_time = wait_end;

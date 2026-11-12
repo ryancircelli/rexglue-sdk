@@ -38,8 +38,7 @@ class MetalZPDVisibilityPool {
   void Shutdown();
 
   bool is_initialized() const {
-    return visibility_buffer_ != nullptr && visibility_mapping_ != nullptr &&
-           capacity_ != 0;
+    return visibility_buffer_ != nullptr && visibility_mapping_ != nullptr && capacity_ != 0;
   }
 
   uint32_t capacity() const { return capacity_; }
@@ -69,7 +68,7 @@ class MetalZPDVisibilityPool {
 };
 
 }  // namespace metal
-}  // namespace gpu
-}  // namespace xe
+}  // namespace graphics
+}  // namespace rex
 
 #endif  // XENIA_GPU_METAL_METAL_ZPD_VISIBILITY_POOL_H_

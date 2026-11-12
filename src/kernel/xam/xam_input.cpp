@@ -46,7 +46,8 @@ constexpr uint32_t kXNotificationSystemInputDevicesChanged = 0x00000012;
 X_RESULT NotifyIfDevicesChanged(rex::input::InputSystem* is, X_RESULT result) {
   if (is && is->TakeDevicesChanged()) {
     REXKRNL_INFO("XamInput: controllers changed, sending XN_SYS_INPUTDEVICESCHANGED");
-    REX_KERNEL_STATE()->BroadcastNotification(XNotificationID(kXNotificationSystemInputDevicesChanged), 0);
+    REX_KERNEL_STATE()->BroadcastNotification(
+        XNotificationID(kXNotificationSystemInputDevicesChanged), 0);
   }
   return result;
 }

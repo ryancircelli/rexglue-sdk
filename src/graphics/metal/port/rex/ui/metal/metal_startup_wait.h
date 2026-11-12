@@ -14,6 +14,7 @@ struct MetalStartupWaitResult {
 // callbacks, which could re-enter module launch before warm-up completes.
 MetalStartupWaitResult WaitForMetalStartup(const std::function<bool()>& complete);
 
-// [shader-prep] Main thread only: hide the app's windows and Dock icon (a headless FABLE2_SHADER_PREP run).
+// [shader-prep] Main thread only: hide the app's windows and Dock icon (a headless
+// FABLE2_SHADER_PREP run).
 void HideAppForBackgroundWork();
 }  // namespace rex::ui::metal

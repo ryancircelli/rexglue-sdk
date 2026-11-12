@@ -53,8 +53,7 @@ bool SteamProcessRunning() {
     return false;
   }
   std::vector<pid_t> pids(static_cast<size_t>(count) + 32);
-  const int filled =
-      proc_listallpids(pids.data(), static_cast<int>(pids.size() * sizeof(pid_t)));
+  const int filled = proc_listallpids(pids.data(), static_cast<int>(pids.size() * sizeof(pid_t)));
   for (int i = 0; i < filled; i++) {
     char name[2 * MAXCOMLEN + 1] = {};
     if (proc_name(pids[i], name, sizeof(name)) > 0 && IsSteamProcessName(name)) {

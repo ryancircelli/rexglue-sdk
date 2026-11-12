@@ -26,12 +26,10 @@ namespace metal {
 
 class MetalGPUCompletionTimeline : public GPUCompletionTimeline {
  public:
-  static std::unique_ptr<MetalGPUCompletionTimeline> Create(
-      MTL::Device* device);
+  static std::unique_ptr<MetalGPUCompletionTimeline> Create(MTL::Device* device);
 
   MetalGPUCompletionTimeline(const MetalGPUCompletionTimeline&) = delete;
-  MetalGPUCompletionTimeline& operator=(const MetalGPUCompletionTimeline&) =
-      delete;
+  MetalGPUCompletionTimeline& operator=(const MetalGPUCompletionTimeline&) = delete;
   MetalGPUCompletionTimeline(MetalGPUCompletionTimeline&&) = delete;
   MetalGPUCompletionTimeline& operator=(MetalGPUCompletionTimeline&&) = delete;
 
@@ -59,6 +57,6 @@ class MetalGPUCompletionTimeline : public GPUCompletionTimeline {
 
 }  // namespace metal
 }  // namespace ui
-}  // namespace xe
+}  // namespace rex
 
 #endif  // XENIA_UI_METAL_METAL_GPU_COMPLETION_TIMELINE_H_

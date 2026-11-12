@@ -30,10 +30,11 @@ class MetalGraphicsSystem : public GraphicsSystem {
 
   void CreateProvider(bool with_presentation) override;
 
-  void InitializeShaderStorage(const std::filesystem::path& cache_root,
-                               uint32_t title_id, bool blocking) override;
+  void InitializeShaderStorage(const std::filesystem::path& cache_root, uint32_t title_id,
+                               bool blocking) override;
 
-  // FABLE2_VSYNC_PHASE_LOCK (metal_vsync_lock.h): replaces the SDK's guest vblank worker with a phase-locked one.
+  // FABLE2_VSYNC_PHASE_LOCK (metal_vsync_lock.h): replaces the SDK's guest vblank worker with a
+  // phase-locked one.
   X_STATUS SetupGuestGpu(runtime::FunctionDispatcher* function_dispatcher,
                          system::KernelState* kernel_state) override;
 
@@ -48,7 +49,7 @@ class MetalGraphicsSystem : public GraphicsSystem {
 };
 
 }  // namespace metal
-}  // namespace gpu
-}  // namespace xe
+}  // namespace graphics
+}  // namespace rex
 
 #endif  // XENIA_GPU_METAL_GRAPHICS_SYSTEM_H

@@ -31,35 +31,34 @@
 namespace rex::graphics::metal::converter_census {
 
 enum Purpose : uint32_t {
-  kGuestVS,     // guest vertex shader, standard pipelines
-  kGuestPS,     // guest pixel shader
-  kDepthOnlyPS, // depth-only fragment for no-PS emulation draws
-  kGeomVS,      // geometry emulation: guest VS as the object stage
-  kGeomGS,      // geometry emulation: generated geometry shader
-  kTessVS,      // tessellation emulation: fixed control-point VS
-  kTessHS,      // tessellation emulation: fixed hull shader
-  kTessDS,      // tessellation emulation: guest VS as the domain shader
+  kGuestVS,      // guest vertex shader, standard pipelines
+  kGuestPS,      // guest pixel shader
+  kDepthOnlyPS,  // depth-only fragment for no-PS emulation draws
+  kGeomVS,       // geometry emulation: guest VS as the object stage
+  kGeomGS,       // geometry emulation: generated geometry shader
+  kTessVS,       // tessellation emulation: fixed control-point VS
+  kTessHS,       // tessellation emulation: fixed hull shader
+  kTessDS,       // tessellation emulation: guest VS as the domain shader
   kOther,
   kPurposeCount,
 };
 
 inline const char* PurposeName(uint32_t p) {
-  static const char* names[] = {"guest-vs", "guest-ps", "depth-only-ps",
-                                "geom-vs",  "geom-gs",  "tess-vs",
-                                "tess-hs",  "tess-ds",  "other"};
+  static const char* names[] = {"guest-vs", "guest-ps", "depth-only-ps", "geom-vs", "geom-gs",
+                                "tess-vs",  "tess-hs",  "tess-ds",       "other"};
   return p < kPurposeCount ? names[p] : "?";
 }
 
 enum Draw : uint32_t {
-  kDrawStdNative,      // standard pipeline, every stage native
-  kDrawStdConvVS,      // standard pipeline, converter vertex function
-  kDrawStdConvPS,      // standard pipeline, converter pixel function
-  kDrawNativeGeom,     // native points / rectangles
+  kDrawStdNative,   // standard pipeline, every stage native
+  kDrawStdConvVS,   // standard pipeline, converter vertex function
+  kDrawStdConvPS,   // standard pipeline, converter pixel function
+  kDrawNativeGeom,  // native points / rectangles
   kDrawNativeGeomConvPS,
-  kDrawNativeTess,     // native tessellation
+  kDrawNativeTess,  // native tessellation
   kDrawNativeTessConvPS,
-  kDrawGeomEmu,        // MSC geometry emulation
-  kDrawTessEmu,        // MSC tessellation emulation
+  kDrawGeomEmu,  // MSC geometry emulation
+  kDrawTessEmu,  // MSC tessellation emulation
   kDrawCount,
 };
 
@@ -110,15 +109,14 @@ inline void NoteFirst(const char* what) {
   Counters& c = Get();
   c.changes.fetch_add(1, std::memory_order_relaxed);
   if (!c.first_logged[p].exchange(true, std::memory_order_relaxed)) {
-    REXLOG_INFO("[converter-use] first {} use: {} (shader {:016X})",
-                PurposeName(p), what, CurrentHash());
+    REXLOG_INFO("[converter-use] first {} use: {} (shader {:016X})", PurposeName(p), what,
+                CurrentHash());
   }
 }
 
 inline void Dxil(bool cached) {
   Counters& c = Get();
-  (cached ? c.dxil_cached : c.dxil_run)[CurrentPurpose()].fetch_add(
-      1, std::memory_order_relaxed);
+  (cached ? c.dxil_cached : c.dxil_run)[CurrentPurpose()].fetch_add(1, std::memory_order_relaxed);
   NoteFirst(cached ? "dxil (cached)" : "dxilconv");
 }
 inline void MscRequest() {
@@ -157,28 +155,28 @@ inline void MaybeLog(bool force = false) {
   static std::array<uint64_t, kDrawCount> last_draws{};
   Counters& c = Get();
   const auto now = clock::now();
-  if (!force && now - last < std::chrono::seconds(10)) return;
+  if (!force && now - last < std::chrono::seconds(10))
+    return;
   const uint64_t changes = c.changes.load(std::memory_order_relaxed);
   std::array<uint64_t, kDrawCount> d;
   bool conv_draws = false;
   for (uint32_t i = 0; i < kDrawCount; ++i) {
     d[i] = c.draws[i].load(std::memory_order_relaxed);
   }
-  const uint64_t window_conv =
-      (d[kDrawStdConvVS] - last_draws[kDrawStdConvVS]) +
-      (d[kDrawStdConvPS] - last_draws[kDrawStdConvPS]) +
-      (d[kDrawNativeGeomConvPS] - last_draws[kDrawNativeGeomConvPS]) +
-      (d[kDrawNativeTessConvPS] - last_draws[kDrawNativeTessConvPS]) +
-      (d[kDrawGeomEmu] - last_draws[kDrawGeomEmu]) +
-      (d[kDrawTessEmu] - last_draws[kDrawTessEmu]);
+  const uint64_t window_conv = (d[kDrawStdConvVS] - last_draws[kDrawStdConvVS]) +
+                               (d[kDrawStdConvPS] - last_draws[kDrawStdConvPS]) +
+                               (d[kDrawNativeGeomConvPS] - last_draws[kDrawNativeGeomConvPS]) +
+                               (d[kDrawNativeTessConvPS] - last_draws[kDrawNativeTessConvPS]) +
+                               (d[kDrawGeomEmu] - last_draws[kDrawGeomEmu]) +
+                               (d[kDrawTessEmu] - last_draws[kDrawTessEmu]);
   conv_draws = window_conv != 0;
   // Always one line once draws have happened, so a converter-free run says
   // so ("totals: none;").
   static bool logged_once = false;
   uint64_t all_draws = 0;
-  for (uint32_t i = 0; i < kDrawCount; ++i) all_draws += d[i];
-  if (!force && changes == last_changes && !conv_draws &&
-      (logged_once || !all_draws)) {
+  for (uint32_t i = 0; i < kDrawCount; ++i)
+    all_draws += d[i];
+  if (!force && changes == last_changes && !conv_draws && (logged_once || !all_draws)) {
     last = now;
     return;
   }
@@ -193,23 +191,23 @@ inline void MaybeLog(bool force = false) {
     const uint64_t mr = c.msc_run[p].load(std::memory_order_relaxed);
     const uint64_t lb = c.libs[p].load(std::memory_order_relaxed);
     const uint64_t rf = c.refused[p].load(std::memory_order_relaxed);
-    if (!(dc | dr | mq | mr | lb | rf)) continue;
+    if (!(dc | dr | mq | mr | lb | rf))
+      continue;
     per += " ";
     per += PurposeName(p);
-    per += "=dxil " + std::to_string(dc + dr) + "(run " + std::to_string(dr) +
-           ") msc " + std::to_string(mq) + "(run " + std::to_string(mr) +
-           ") lib " + std::to_string(lb);
-    if (rf) per += " REFUSED " + std::to_string(rf);
+    per += "=dxil " + std::to_string(dc + dr) + "(run " + std::to_string(dr) + ") msc " +
+           std::to_string(mq) + "(run " + std::to_string(mr) + ") lib " + std::to_string(lb);
+    if (rf)
+      per += " REFUSED " + std::to_string(rf);
     per += ";";
   }
   REXLOG_INFO(
       "[converter-use] totals:{} draws: std native {} conv-vs {} conv-ps {} | "
       "native geom {} (conv ps {}) native tess {} (conv ps {}) | geom emu {} "
       "tess emu {} | converter draws in last window {}",
-      per.empty() ? " none;" : per, d[kDrawStdNative], d[kDrawStdConvVS],
-      d[kDrawStdConvPS], d[kDrawNativeGeom], d[kDrawNativeGeomConvPS],
-      d[kDrawNativeTess], d[kDrawNativeTessConvPS], d[kDrawGeomEmu],
-      d[kDrawTessEmu], window_conv);
+      per.empty() ? " none;" : per, d[kDrawStdNative], d[kDrawStdConvVS], d[kDrawStdConvPS],
+      d[kDrawNativeGeom], d[kDrawNativeGeomConvPS], d[kDrawNativeTess], d[kDrawNativeTessConvPS],
+      d[kDrawGeomEmu], d[kDrawTessEmu], window_conv);
   last_draws = d;
 }
 

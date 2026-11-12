@@ -37,13 +37,11 @@ class MetalImmediateDrawer : public ImmediateDrawer {
   bool Initialize();
   void Shutdown();
 
-  std::unique_ptr<ImmediateTexture> CreateTexture(uint32_t width,
-                                                  uint32_t height,
-                                                  ImmediateTextureFilter filter,
-                                                  bool repeat,
+  std::unique_ptr<ImmediateTexture> CreateTexture(uint32_t width, uint32_t height,
+                                                  ImmediateTextureFilter filter, bool repeat,
                                                   const uint8_t* data) override;
-  std::unique_ptr<ImmediateTexture> CreateTextureFromMetal(
-      MTL::Texture* texture, MTL::SamplerState* sampler);
+  std::unique_ptr<ImmediateTexture> CreateTextureFromMetal(MTL::Texture* texture,
+                                                           MTL::SamplerState* sampler);
 
   void Begin(UIDrawContext& ui_draw_context, float coordinate_space_width,
              float coordinate_space_height) override;
@@ -55,8 +53,7 @@ class MetalImmediateDrawer : public ImmediateDrawer {
  private:
   class MetalImmediateTexture : public ImmediateTexture {
    public:
-    MetalImmediateTexture(uint32_t width, uint32_t height)
-        : ImmediateTexture(width, height) {}
+    MetalImmediateTexture(uint32_t width, uint32_t height) : ImmediateTexture(width, height) {}
     ~MetalImmediateTexture() override;
 
     MTL::Texture* texture = nullptr;
@@ -82,6 +79,6 @@ class MetalImmediateDrawer : public ImmediateDrawer {
 
 }  // namespace metal
 }  // namespace ui
-}  // namespace xe
+}  // namespace rex
 
 #endif  // XENIA_UI_METAL_METAL_IMMEDIATE_DRAWER_H_

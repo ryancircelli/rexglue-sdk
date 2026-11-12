@@ -8,7 +8,6 @@
 
 #include <cstdint>
 
-
 namespace rex::graphics::metal::test_hooks {
 
 enum class Point : uint32_t {
@@ -32,16 +31,15 @@ inline HookFn g_hook = nullptr;
 
 }  // namespace rex::graphics::metal::test_hooks
 
-#define REX_METAL_TEST_HOOK(point, texture)                    \
-  do {                                                         \
-    if (::rex::graphics::metal::test_hooks::g_hook) {          \
-      ::rex::graphics::metal::test_hooks::g_hook(              \
-          ::rex::graphics::metal::test_hooks::Point::point,    \
-          (texture).key().base_page);                          \
-    }                                                          \
+#define REX_METAL_TEST_HOOK(point, texture)                                                        \
+  do {                                                                                             \
+    if (::rex::graphics::metal::test_hooks::g_hook) {                                              \
+      ::rex::graphics::metal::test_hooks::g_hook(::rex::graphics::metal::test_hooks::Point::point, \
+                                                 (texture).key().base_page);                       \
+    }                                                                                              \
   } while (0)
-#define REX_METAL_TEST_FRIEND \
-  friend class TexCacheStressAccess;  \
+#define REX_METAL_TEST_FRIEND        \
+  friend class TexCacheStressAccess; \
   friend class TexConfAccess;
 
 #else

@@ -34,8 +34,7 @@ const char* MetalTextureUploadSourceFallbackReasonName(size_t reason);
 
 std::string MetalFormatNamedCounts(const uint64_t* values, size_t count,
                                    MetalTelemetryNameCallback name_callback);
-std::string MetalFormatNamedTriplets(const uint64_t* total,
-                                     const uint64_t* active,
+std::string MetalFormatNamedTriplets(const uint64_t* total, const uint64_t* active,
                                      const uint64_t* no_active, size_t count,
                                      MetalTelemetryNameCallback name_callback);
 
@@ -46,17 +45,16 @@ std::string MetalFormatNamedCounts(const std::array<uint64_t, Count>& values,
 }
 
 template <size_t Count>
-std::string MetalFormatNamedTriplets(
-    const std::array<uint64_t, Count>& total,
-    const std::array<uint64_t, Count>& active,
-    const std::array<uint64_t, Count>& no_active,
-    MetalTelemetryNameCallback name_callback) {
-  return MetalFormatNamedTriplets(total.data(), active.data(), no_active.data(),
-                                  total.size(), name_callback);
+std::string MetalFormatNamedTriplets(const std::array<uint64_t, Count>& total,
+                                     const std::array<uint64_t, Count>& active,
+                                     const std::array<uint64_t, Count>& no_active,
+                                     MetalTelemetryNameCallback name_callback) {
+  return MetalFormatNamedTriplets(total.data(), active.data(), no_active.data(), total.size(),
+                                  name_callback);
 }
 
 }  // namespace metal
-}  // namespace gpu
-}  // namespace xe
+}  // namespace graphics
+}  // namespace rex
 
 #endif  // XENIA_GPU_METAL_METAL_BACKEND_TELEMETRY_H_

@@ -232,8 +232,7 @@ void SDLInputDriver::InitSubsystems() {
       REXLOG_WARN("SDL GameControllerDB: file '{}' does not exist.",
                   REXCVAR_GET(hid_mappings_file));
     } else {
-      auto mappings_result =
-          SDL_AddGamepadMappingsFromFile(REXCVAR_GET(hid_mappings_file).c_str());
+      auto mappings_result = SDL_AddGamepadMappingsFromFile(REXCVAR_GET(hid_mappings_file).c_str());
       if (mappings_result < 0) {
         REXLOG_ERROR("SDL GameControllerDB: error loading file '{}': {}.",
                      REXCVAR_GET(hid_mappings_file), SDL_GetError());
@@ -665,9 +664,9 @@ void SDLInputDriver::OnControllerDeviceAddedLocked(const SDL_Event& event) {
   state.vendor_id = SDL_GetGamepadVendor(controller);
   state.product_id = SDL_GetGamepadProduct(controller);
   const char* pad_name = SDL_GetGamepadName(controller);
-  state.virtual_device = SDL_IsJoystickVirtual(event.gdevice.which) ||
-                         IsSteamVirtualPad(state.vendor_id, state.product_id,
-                                           pad_name ? pad_name : "");
+  state.virtual_device =
+      SDL_IsJoystickVirtual(event.gdevice.which) ||
+      IsSteamVirtualPad(state.vendor_id, state.product_id, pad_name ? pad_name : "");
   switch (SDL_GetGamepadConnectionState(controller)) {
     case SDL_JOYSTICK_CONNECTION_WIRED:
       state.transport = "usb";
@@ -705,14 +704,13 @@ void SDLInputDriver::OnControllerDeviceAddedLocked(const SDL_Event& event) {
   // (OnDeviceUserChanged).
   SDL_SetGamepadPlayerIndex(controller, -1);
 
-  REXLOG_INFO("SDL OnControllerDeviceAdded: connection order {}, device {}, serial \"{}\", "
-              "port \"{}\", bluetooth \"{}\" ({}), path \"{}\", {}{}{}.",
-              ordinal, static_cast<uint64_t>(state.id), state.serial, state.location,
-              state.bt_address,
-              state.location_note.empty() ? "-" : state.location_note, state.path,
-              state.transport.empty() ? "unknown link" : state.transport,
-              state.can_rumble ? ", rumble" : ", no rumble",
-              state.virtual_device ? ", virtual" : "");
+  REXLOG_INFO(
+      "SDL OnControllerDeviceAdded: connection order {}, device {}, serial \"{}\", "
+      "port \"{}\", bluetooth \"{}\" ({}), path \"{}\", {}{}{}.",
+      ordinal, static_cast<uint64_t>(state.id), state.serial, state.location, state.bt_address,
+      state.location_note.empty() ? "-" : state.location_note, state.path,
+      state.transport.empty() ? "unknown link" : state.transport,
+      state.can_rumble ? ", rumble" : ", no rumble", state.virtual_device ? ", virtual" : "");
   const char* mapping = SDL_GetGamepadMapping(controller);
   REXLOG_INFO("SDL Controller {}: {}", ordinal, mapping ? mapping : "<none>");
 }

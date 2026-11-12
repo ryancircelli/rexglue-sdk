@@ -73,23 +73,26 @@ static_assert(REX_PLATFORM_LINUX || REX_PLATFORM_MAC, "This file is POSIX-only")
 #define REX_HAS_SIGEV_THREAD_ID 0
 #endif
 
-REXCVAR_DEFINE_STRING(audio_thread_policy, "realtime", "Audio",
-                      "How the threads that produce sound (Audio Worker, XMA Decoder, and the guest threads named in "
-                      "audio_guest_threads) are scheduled on macOS. realtime = Mach time-constraint policy, as Core "
-                      "Audio's own I/O thread: they run within a millisecond of waking even with every core busy. "
-                      "fifo = fixed priority 47 (pthread SCHED_FIFO). off = the user-interactive QoS class every "
-                      "thread has, which on a loaded machine left 30-47 % of the blocks late");
+REXCVAR_DEFINE_STRING(
+    audio_thread_policy, "realtime", "Audio",
+    "How the threads that produce sound (Audio Worker, XMA Decoder, and the guest threads named in "
+    "audio_guest_threads) are scheduled on macOS. realtime = Mach time-constraint policy, as Core "
+    "Audio's own I/O thread: they run within a millisecond of waking even with every core busy. "
+    "fifo = fixed priority 47 (pthread SCHED_FIFO). off = the user-interactive QoS class every "
+    "thread has, which on a loaded machine left 30-47 % of the blocks late");
 
 namespace rex::thread {
 
 std::string SetThreadAudioPriority(Thread* thread) {
 #if defined(__APPLE__)
-  const pthread_t target = thread ? reinterpret_cast<pthread_t>(thread->native_handle()) : pthread_self();
+  const pthread_t target =
+      thread ? reinterpret_cast<pthread_t>(thread->native_handle()) : pthread_self();
   const std::string policy = REXCVAR_GET(audio_thread_policy);
   if (policy == "realtime") {
-    // One 256-sample block at 48 kHz is 5.33 ms: the thread asks for that period, may compute for up to 2 ms of it
-    // and must finish within the period. A thread that keeps overrunning its computation is demoted by the kernel
-    // to the default policy (the fail-safe), so a spinning guest thread cannot take a core for good.
+    // One 256-sample block at 48 kHz is 5.33 ms: the thread asks for that period, may compute for
+    // up to 2 ms of it and must finish within the period. A thread that keeps overrunning its
+    // computation is demoted by the kernel to the default policy (the fail-safe), so a spinning
+    // guest thread cannot take a core for good.
     mach_timebase_info_data_t timebase{};
     mach_timebase_info(&timebase);
     const double abs_per_ms = 1e6 * double(timebase.denom) / double(timebase.numer);
@@ -98,11 +101,12 @@ std::string SetThreadAudioPriority(Thread* thread) {
     constraint.computation = uint32_t(2.0 * abs_per_ms);
     constraint.constraint = uint32_t(5.333 * abs_per_ms);
     constraint.preemptible = 1;
-    const kern_return_t result =
-        thread_policy_set(pthread_mach_thread_np(target), THREAD_TIME_CONSTRAINT_POLICY,
-                          reinterpret_cast<thread_policy_t>(&constraint), THREAD_TIME_CONSTRAINT_POLICY_COUNT);
-    return result == KERN_SUCCESS ? std::string("real-time (time constraint 5.33 ms, 2 ms computation)")
-                                  : "real-time REFUSED (" + std::to_string(result) + ")";
+    const kern_return_t result = thread_policy_set(
+        pthread_mach_thread_np(target), THREAD_TIME_CONSTRAINT_POLICY,
+        reinterpret_cast<thread_policy_t>(&constraint), THREAD_TIME_CONSTRAINT_POLICY_COUNT);
+    return result == KERN_SUCCESS
+               ? std::string("real-time (time constraint 5.33 ms, 2 ms computation)")
+               : "real-time REFUSED (" + std::to_string(result) + ")";
   }
   if (policy == "fifo") {
     sched_param param{};
@@ -210,11 +214,11 @@ std::array<std::atomic<bool>, static_cast<size_t>(SignalType::k_Count)> signal_h
 static void signal_handler(int signal, siginfo_t* info, void* context);
 
 // Blocks the suspend and user-callback signals on the calling thread. Called right before a thread
-// exits: from pthread_exit onward the thread tears down its thread-local storage, and a signal landing
-// then runs signal_handler while libmalloc is mid-free. Any thread_local access in the handler can
-// re-instantiate the TLV block (a malloc), which aborts with "Trying to recursively lock an
-// os_unfair_lock". Seen at quit, when the title wakes every guest thread while some are exiting.
-// A blocked signal still pending when the thread dies is discarded.
+// exits: from pthread_exit onward the thread tears down its thread-local storage, and a signal
+// landing then runs signal_handler while libmalloc is mid-free. Any thread_local access in the
+// handler can re-instantiate the TLV block (a malloc), which aborts with "Trying to recursively
+// lock an os_unfair_lock". Seen at quit, when the title wakes every guest thread while some are
+// exiting. A blocked signal still pending when the thread dies is discarded.
 static void block_thread_signals_for_exit() {
   sigset_t set;
   sigemptyset(&set);
@@ -936,9 +940,9 @@ class PosixCondition<Thread> : public PosixConditionBase {
       return;
     }
 
-    // A thread that has finished (returned, or is inside Terminate on its way to pthread_exit) never
-    // runs another callback. Signalling it only risks landing in its teardown, and once it is gone
-    // pthread_kill fails with ESRCH ("signal delivery failed (3)" at every quit).
+    // A thread that has finished (returned, or is inside Terminate on its way to pthread_exit)
+    // never runs another callback. Signalling it only risks landing in its teardown, and once it is
+    // gone pthread_kill fails with ESRCH ("signal delivery failed (3)" at every quit).
     {
       std::unique_lock<std::mutex> lock(state_mutex_);
       if (state_ == State::kFinished) {
@@ -1485,9 +1489,9 @@ void* PosixCondition<Thread>::ThreadStartRoutine(void* parameter) {
 #endif
   set_current_thread_name("");
 #if defined(__APPLE__)
-  // Guest threads (game, render, audio) at the user-interactive QoS class, as the main thread already is: the
-  // default class lets macOS move them to efficiency cores and delay their wake-ups. Only a thread itself can set
-  // its class once it runs.
+  // Guest threads (game, render, audio) at the user-interactive QoS class, as the main thread
+  // already is: the default class lets macOS move them to efficiency cores and delay their
+  // wake-ups. Only a thread itself can set its class once it runs.
   pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
 #endif
 

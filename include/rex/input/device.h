@@ -66,18 +66,18 @@ struct DeviceInfo {
 
 /// Which fact identifies a pad, strongest first.
 enum class IdentitySource {
-  kSerial,    // the pad's own serial number
-  kLocation,  // the USB port it is plugged into (macOS IOKit LocationID)
-  kBluetooth, // its Bluetooth device address
-  kPath,      // the backend's device path, when it names a port
-  kGuid,      // model only: identical pads share it; connection order decides
-  kName,      // nothing better known
+  kSerial,     // the pad's own serial number
+  kLocation,   // the USB port it is plugged into (macOS IOKit LocationID)
+  kBluetooth,  // its Bluetooth device address
+  kPath,       // the backend's device path, when it names a port
+  kGuid,       // model only: identical pads share it; connection order decides
+  kName,       // nothing better known
 };
 
 struct DeviceIdentity {
-  std::string key;       // e.g. "serial:...", "port:045e:0b12@14200000"
+  std::string key;  // e.g. "serial:...", "port:045e:0b12@14200000"
   IdentitySource source = IdentitySource::kName;
-  std::string reason;    // one line, for logs and rex-padtest --list
+  std::string reason;  // one line, for logs and rex-padtest --list
   // Only one pad at a time can have this key (serial, port, path).
   bool unique = false;
 };

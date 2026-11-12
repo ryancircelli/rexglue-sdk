@@ -36,8 +36,8 @@ uint32_t NativeShadersMode();
 // NativeShadersMode().
 bool NativeShadersEmuPipelines();
 // FABLE2_NATIVE_XLATE (docs/native-translator.md, default on since
-// 2026-10-13, =0 off): guest pixel and vertex shaders are translated straight to MSL (no DXBC/DXIL/converter code)
-// and published as the optimized function; per-shader fallback to the
+// 2026-10-13, =0 off): guest pixel and vertex shaders are translated straight to MSL (no
+// DXBC/DXIL/converter code) and published as the optimized function; per-shader fallback to the
 // converter + -O2 path. Only with NativeShadersMode().
 bool NativeXlateMode();
 // FABLE2_NATIVE_FIRST (docs/no-converter.md; needs FABLE2_NATIVE_XLATE):
@@ -148,8 +148,7 @@ uint64_t AirOptimizerToolchainHash();
 // Runs two tool processes at utility QoS; call it from a background thread.
 // Returns false (out untouched) when the tools are missing, the library has
 // more than one module, or a tool fails; *error says why.
-bool OptimizeMetallibAir(const std::vector<uint8_t>& metallib,
-                         std::vector<uint8_t>& optimized_out,
+bool OptimizeMetallibAir(const std::vector<uint8_t>& metallib, std::vector<uint8_t>& optimized_out,
                          std::string* error);
 
 // FABLE2_NS_SPECIALIZE (metal_ns_specialize.h): runs `metal-opt -O2 -S` on

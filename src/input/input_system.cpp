@@ -60,8 +60,9 @@ REXCVAR_DEFINE_STRING(input_virtual_pads, "after", "Input",
     .allowed({"after", "normal", "ignore"});
 REXCVAR_DEFINE_BOOL(input_remember_slots, true, "Input",
                     "A controller that disconnects gets its player back when it reconnects");
-REXCVAR_DEFINE_BOOL(input_log_state, false, "Input",
-                    "Log every controller's player and state every 0.5 s (env REX_INPUT_LOG_STATE=1)");
+REXCVAR_DEFINE_BOOL(
+    input_log_state, false, "Input",
+    "Log every controller's player and state every 0.5 s (env REX_INPUT_LOG_STATE=1)");
 
 REXCVAR_DEFINE_INT32(hid_virtual_pads, 0, "Input",
                      "Scripted virtual pads on players 1-N, for testing split screen without "
@@ -173,8 +174,8 @@ void InputSystem::ApplySlotConfig() {
                   pin.match);
     }
   }
-  slot_table_.SetVirtualPolicy(
-      ParseVirtualPadPolicy(REXCVAR_GET(input_virtual_pads)).value_or(VirtualPadPolicy::kAfterPhysical));
+  slot_table_.SetVirtualPolicy(ParseVirtualPadPolicy(REXCVAR_GET(input_virtual_pads))
+                                   .value_or(VirtualPadPolicy::kAfterPhysical));
   slot_table_.SetRememberDisconnected(REXCVAR_GET(input_remember_slots));
 }
 
@@ -266,9 +267,10 @@ void InputSystem::RefreshDevices() {
     if (seen[i].ordinal < kMaxGuestUsers) {
       REXLOG_INFO("Input: player {} connected: {}", seen[i].ordinal + 1, DescribeDevice(seen[i]));
     } else {
-      REXLOG_WARN("Input: {} connected, but all {} players already have a controller; it is not "
-                  "used until one leaves and it is reconnected.",
-                  DescribeDevice(seen[i]), kMaxGuestUsers);
+      REXLOG_WARN(
+          "Input: {} connected, but all {} players already have a controller; it is not "
+          "used until one leaves and it is reconnected.",
+          DescribeDevice(seen[i]), kMaxGuestUsers);
     }
     if (IsSteamVirtualPad(seen[i].vendor_id, seen[i].product_id, seen[i].name) &&
         !steam_virtual_warned_) {
@@ -332,10 +334,10 @@ std::vector<InputSystem::DeviceSnapshot> InputSystem::SnapshotDevices() {
     DeviceSnapshot snap;
     snap.info = devices_[i];
     snap.user = UserForDevice(devices_[i].id);
-    snap.has_state = device_owners_[i]->GetDeviceState(devices_[i].id, &snap.state) ==
-                     X_ERROR_SUCCESS;
-    snap.has_caps = device_owners_[i]->GetDeviceCapabilities(devices_[i].id, 0, &snap.caps) ==
-                    X_ERROR_SUCCESS;
+    snap.has_state =
+        device_owners_[i]->GetDeviceState(devices_[i].id, &snap.state) == X_ERROR_SUCCESS;
+    snap.has_caps =
+        device_owners_[i]->GetDeviceCapabilities(devices_[i].id, 0, &snap.caps) == X_ERROR_SUCCESS;
     out.push_back(std::move(snap));
   }
   return out;
@@ -688,8 +690,8 @@ std::unique_ptr<InputDriver> CreateScriptPadDriverFromConfig() {
     }
   }
   const std::array<std::string, kMaxGuestUsers> inline_scripts = {
-      REXCVAR_GET(hid_virtual_pad1), REXCVAR_GET(hid_virtual_pad2),
-      REXCVAR_GET(hid_virtual_pad3), REXCVAR_GET(hid_virtual_pad4)};
+      REXCVAR_GET(hid_virtual_pad1), REXCVAR_GET(hid_virtual_pad2), REXCVAR_GET(hid_virtual_pad3),
+      REXCVAR_GET(hid_virtual_pad4)};
   int count = REXCVAR_GET(hid_virtual_pads);
   if (count == 0) {
     count = std::clamp(file.pad_count, 0, static_cast<int>(kMaxGuestUsers));

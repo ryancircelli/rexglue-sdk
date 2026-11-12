@@ -184,8 +184,8 @@ bool ParseWait(std::string_view entry, Step& step, bool& ok) {
     }
     target = std::string(rest);
   }
-  if (target.empty() || (kind == Step::Wait::kEvent &&
-                         target.find_first_of(" \t") != std::string::npos)) {
+  if (target.empty() ||
+      (kind == Step::Wait::kEvent && target.find_first_of(" \t") != std::string::npos)) {
     return true;
   }
   step = {};
@@ -283,12 +283,11 @@ std::vector<Step> ParseScript(std::string_view text, std::string* error) {
     }
   }
   if (error) {
-    *error = problems.empty()
-                 ? std::string()
-                 : "skipped " + problems +
-                       " (want <s>:<control> or <s>-<s>:<control>[+<control>...], "
-                       "<s>-<s>:disconnect, wait_event <name> [timeout_s], or "
-                       "wait_log <text> [timeout_s])";
+    *error = problems.empty() ? std::string()
+                              : "skipped " + problems +
+                                    " (want <s>:<control> or <s>-<s>:<control>[+<control>...], "
+                                    "<s>-<s>:disconnect, wait_event <name> [timeout_s], or "
+                                    "wait_log <text> [timeout_s])";
   }
   return steps;
 }
@@ -461,8 +460,7 @@ double ScriptInputDriver::Advance(size_t index, double now) {
 bool ScriptInputDriver::Update(size_t index) {
   Pad& pad = pads_[index];
   const double now = Advance(index, clock_());
-  const Frame frame = pad.waiting ? Frame{true, 0}
-                                  : Evaluate(pad.steps, now, pad.segment);
+  const Frame frame = pad.waiting ? Frame{true, 0} : Evaluate(pad.steps, now, pad.segment);
   // A disconnect shorter than the gap between polls still counts.
   bool blinked = false;
   for (const auto& step : pad.steps) {

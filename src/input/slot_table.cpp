@@ -70,14 +70,13 @@ DeviceIdentity ResolveDeviceIdentity(const DeviceInfo& info) {
     return id;
   }
   if (!info.location.empty()) {
-    id.key = fmt::format("port:{:04x}:{:04x}@{}", info.vendor_id, info.product_id,
-                         Lower(info.location));
+    id.key =
+        fmt::format("port:{:04x}:{:04x}@{}", info.vendor_id, info.product_id, Lower(info.location));
     id.source = IdentitySource::kLocation;
     id.unique = true;
-    id.reason = fmt::format("no serial; {} port {}{}{}",
-                            info.transport.empty() ? "connection" : info.transport,
-                            Lower(info.location), info.location_note.empty() ? "" : ", ",
-                            info.location_note);
+    id.reason = fmt::format(
+        "no serial; {} port {}{}{}", info.transport.empty() ? "connection" : info.transport,
+        Lower(info.location), info.location_note.empty() ? "" : ", ", info.location_note);
     return id;
   }
   if (!info.bt_address.empty()) {
@@ -234,7 +233,8 @@ std::vector<SlotPin> ParseSlotPins(std::string_view text, std::string* error) {
       continue;
     }
     const size_t eq = entry.find('=');
-    const std::string_view player_text = eq == std::string_view::npos ? "" : Trim(entry.substr(0, eq));
+    const std::string_view player_text =
+        eq == std::string_view::npos ? "" : Trim(entry.substr(0, eq));
     const std::string_view match = eq == std::string_view::npos ? "" : Trim(entry.substr(eq + 1));
     uint32_t player = 0;
     const auto parsed =

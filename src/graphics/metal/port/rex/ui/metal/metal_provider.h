@@ -26,9 +26,8 @@ class MetalProvider : public GraphicsProvider {
 
   ~MetalProvider() override;
 
-  std::unique_ptr<Presenter> CreatePresenter(
-      Presenter::HostGpuLossCallback host_gpu_loss_callback =
-          Presenter::FatalErrorHostGpuLossCallback) override;
+  std::unique_ptr<Presenter> CreatePresenter(Presenter::HostGpuLossCallback host_gpu_loss_callback =
+                                                 Presenter::FatalErrorHostGpuLossCallback) override;
 
   std::unique_ptr<ImmediateDrawer> CreateImmediateDrawer() override;
 
@@ -49,6 +48,6 @@ class MetalProvider : public GraphicsProvider {
 
 }  // namespace metal
 }  // namespace ui
-}  // namespace xe
+}  // namespace rex
 
 #endif  // XENIA_UI_METAL_METAL_PROVIDER_H_

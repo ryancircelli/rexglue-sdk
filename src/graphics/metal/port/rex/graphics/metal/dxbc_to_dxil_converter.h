@@ -39,8 +39,7 @@ class DxbcToDxilConverter {
 
   // Convert DXBC bytecode to DXIL bytecode
   // Returns true on success, false on failure
-  bool Convert(const std::vector<uint8_t>& dxbc_data,
-               std::vector<uint8_t>& dxil_data_out,
+  bool Convert(const std::vector<uint8_t>& dxbc_data, std::vector<uint8_t>& dxil_data_out,
                std::string* error_message = nullptr);
 
   // Check if the converter is available
@@ -59,7 +58,7 @@ class DxbcToDxilConverter {
 };
 
 }  // namespace metal
-}  // namespace gpu
-}  // namespace xe
+}  // namespace graphics
+}  // namespace rex
 
 #endif  // DXBC_TO_DXIL_CONVERTER_H_

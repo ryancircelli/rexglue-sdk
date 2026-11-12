@@ -100,8 +100,9 @@ bool WindowSDL::OpenImpl() {
   // uses logical points and applies the backing scale itself.
   SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_HIDDEN;
   if (REXCVAR_GET(window_start_minimized)) {
-    // Created hidden, so SDL keeps the minimize pending and applies it at SDL_ShowWindow below. Without the
-    // activation hints, showing (and raising) the window would still make it key and bring the app to the front.
+    // Created hidden, so SDL keeps the minimize pending and applies it at SDL_ShowWindow below.
+    // Without the activation hints, showing (and raising) the window would still make it key and
+    // bring the app to the front.
     flags |= SDL_WINDOW_MINIMIZED;
     SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, "0");
     SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_RAISED, "0");

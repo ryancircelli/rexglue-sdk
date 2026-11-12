@@ -24,8 +24,8 @@ namespace metal {
 
 class MetalHeapPool {
  public:
-  MetalHeapPool(MTL::Device* device, MTL::StorageMode storage_mode,
-                size_t min_heap_size, const char* label_prefix);
+  MetalHeapPool(MTL::Device* device, MTL::StorageMode storage_mode, size_t min_heap_size,
+                const char* label_prefix);
   ~MetalHeapPool();
 
   using HeapCreatedCallback = std::function<void(MTL::Heap*)>;
@@ -40,7 +40,8 @@ class MetalHeapPool {
   size_t used_heap_bytes() const {
     size_t used = 0;
     for (const auto& entry : heaps_) {
-      if (entry.heap) used += size_t(entry.heap->usedSize());
+      if (entry.heap)
+        used += size_t(entry.heap->usedSize());
     }
     return used;
   }
@@ -64,7 +65,7 @@ class MetalHeapPool {
 };
 
 }  // namespace metal
-}  // namespace gpu
-}  // namespace xe
+}  // namespace graphics
+}  // namespace rex
 
 #endif  // XENIA_GPU_METAL_METAL_HEAP_POOL_H_

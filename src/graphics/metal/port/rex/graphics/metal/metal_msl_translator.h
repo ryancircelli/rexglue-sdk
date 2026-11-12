@@ -133,21 +133,16 @@ class MslShaderTranslator : public ShaderTranslator {
   void ProcessLabel(uint32_t cf_index) override;
   void ProcessExecInstructionBegin(const ParsedExecInstruction& instr) override;
   void ProcessExecInstructionEnd(const ParsedExecInstruction& instr) override;
-  void ProcessLoopStartInstruction(
-      const ParsedLoopStartInstruction& instr) override;
+  void ProcessLoopStartInstruction(const ParsedLoopStartInstruction& instr) override;
   void ProcessLoopEndInstruction(const ParsedLoopEndInstruction& instr) override;
   void ProcessCallInstruction(const ParsedCallInstruction& instr) override;
   void ProcessReturnInstruction(const ParsedReturnInstruction& instr) override;
   void ProcessJumpInstruction(const ParsedJumpInstruction& instr) override;
-  void ProcessAllocInstruction(const ParsedAllocInstruction& instr,
-                               uint8_t export_eM) override;
-  void ProcessVertexFetchInstruction(
-      const ParsedVertexFetchInstruction& instr) override;
-  void ProcessTextureFetchInstruction(
-      const ParsedTextureFetchInstruction& instr) override;
-  void ProcessAluInstruction(
-      const ParsedAluInstruction& instr,
-      uint8_t memexport_eM_potentially_written_before) override;
+  void ProcessAllocInstruction(const ParsedAllocInstruction& instr, uint8_t export_eM) override;
+  void ProcessVertexFetchInstruction(const ParsedVertexFetchInstruction& instr) override;
+  void ProcessTextureFetchInstruction(const ParsedTextureFetchInstruction& instr) override;
+  void ProcessAluInstruction(const ParsedAluInstruction& instr,
+                             uint8_t memexport_eM_potentially_written_before) override;
 
  private:
   using Modification = DxbcShaderTranslator::Modification;
@@ -165,9 +160,7 @@ class MslShaderTranslator : public ShaderTranslator {
 
   void Fail(const std::string& reason);
   bool failed() const { return !fail_reason_.empty(); }
-  Modification modification() const {
-    return Modification(current_translation().modification());
-  }
+  Modification modification() const { return Modification(current_translation().modification()); }
 
   // Code emission.
   template <typename... Args>
@@ -186,8 +179,8 @@ class MslShaderTranslator : public ShaderTranslator {
   void StoreResult(const InstructionResult& result, const std::string& value4);
 
   // Control flow (mirrors DxbcShaderTranslator).
-  void UpdateExecConditionals(ParsedExecInstruction::Type type,
-                              uint32_t bool_constant_index, bool condition);
+  void UpdateExecConditionals(ParsedExecInstruction::Type type, uint32_t bool_constant_index,
+                              bool condition);
   void CloseExecConditionals();
   void UpdateInstructionPredication(bool predicated, bool condition);
   void CloseInstructionPredication();
@@ -205,20 +198,17 @@ class MslShaderTranslator : public ShaderTranslator {
   void ExportToMemory(uint8_t export_eM);
   void CompleteVertexShader();
   bool vertex_pse_written_ = false;
-  void EmitAlphaToMaskSample(bool initialize, uint32_t sample_index,
-                             float threshold_base, const std::string& offset,
-                             float offset_scale, const std::string& coverage);
+  void EmitAlphaToMaskSample(bool initialize, uint32_t sample_index, float threshold_base,
+                             const std::string& offset, float offset_scale,
+                             const std::string& coverage);
   bool IsForceEarlyDepthStencil() const;
   bool DsvWritingFloat24() const;
   bool DsvApplyingPolygonOffset() const;
 
-  uint32_t FindTextureBinding(uint32_t fetch_constant,
-                              xenos::FetchOpDimension dimension,
+  uint32_t FindTextureBinding(uint32_t fetch_constant, xenos::FetchOpDimension dimension,
                               bool is_signed);
-  uint32_t FindSamplerBinding(uint32_t fetch_constant,
-                              xenos::TextureFilter mag_filter,
-                              xenos::TextureFilter min_filter,
-                              xenos::TextureFilter mip_filter,
+  uint32_t FindSamplerBinding(uint32_t fetch_constant, xenos::TextureFilter mag_filter,
+                              xenos::TextureFilter min_filter, xenos::TextureFilter mip_filter,
                               xenos::AnisoFilter aniso_filter);
 
   MslTranslatorConfig config_;

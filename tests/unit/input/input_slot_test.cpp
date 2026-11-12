@@ -312,9 +312,8 @@ namespace sc = rex::input::script;
 
 TEST_CASE("Pad scripts parse taps, holds, combos and disconnects", "[input][script]") {
   std::string error;
-  const auto steps =
-      sc::ParseScript("25:a, 60-90:stick_up+look_right;100-105:disconnect 7:bogus 8:disconnect",
-                      &error);
+  const auto steps = sc::ParseScript(
+      "25:a, 60-90:stick_up+look_right;100-105:disconnect 7:bogus 8:disconnect", &error);
   REQUIRE(steps.size() == 3);
   CHECK(steps[0].start == 25);
   CHECK(steps[0].end == 25.25);
@@ -353,13 +352,15 @@ TEST_CASE("Script controls map to sticks and triggers", "[input][script]") {
 
 TEST_CASE("Four script pads take players 1-4 and survive a scripted unplug", "[input][script]") {
   double now = 0;
-  std::vector<std::vector<sc::Step>> scripts = {
-      sc::ParseScript("1-2:a"), sc::ParseScript("5-6:disconnect"), {}, sc::ParseScript("1-3:stick_up")};
+  std::vector<std::vector<sc::Step>> scripts = {sc::ParseScript("1-2:a"),
+                                                sc::ParseScript("5-6:disconnect"),
+                                                {},
+                                                sc::ParseScript("1-3:stick_up")};
   InputSystem input(nullptr);
   auto real_owner = std::make_unique<IdentityDriver>();
   IdentityDriver* real = real_owner.get();
-  input.AddDriver(std::make_unique<sc::ScriptInputDriver>(std::move(scripts), 35,
-                                                         [&now] { return now; }));
+  input.AddDriver(
+      std::make_unique<sc::ScriptInputDriver>(std::move(scripts), 35, [&now] { return now; }));
   input.AddDriver(std::move(real_owner));
   input.SetDeviceAssignment(std::make_unique<SlotAssignment>());
 
@@ -420,9 +421,9 @@ namespace {
 
 uint16_t Buttons(sc::ScriptInputDriver& driver, uint32_t pad = 0) {
   X_INPUT_STATE state = {};
-  if (driver.GetDeviceState(static_cast<rex::input::DeviceId>(
-                                sc::ScriptInputDriver::kScriptPadBase + pad),
-                            &state) != X_ERROR_SUCCESS) {
+  if (driver.GetDeviceState(
+          static_cast<rex::input::DeviceId>(sc::ScriptInputDriver::kScriptPadBase + pad), &state) !=
+      X_ERROR_SUCCESS) {
     return 0xFFFF;
   }
   return state.gamepad.buttons;
@@ -433,10 +434,9 @@ uint16_t Buttons(sc::ScriptInputDriver& driver, uint32_t pad = 0) {
 TEST_CASE("A script waits for an event, then times later steps from it", "[input][script]") {
   sc::ResetScriptEvents();
   double now = 0;
-  sc::ScriptInputDriver driver(
-      {sc::ParseScript("0-1:a, wait_event lobby_open 60, 2-3:start"),
-       sc::ParseScript("wait_event lobby_open, 1-2:x")},
-      35, [&now] { return now; });
+  sc::ScriptInputDriver driver({sc::ParseScript("0-1:a, wait_event lobby_open 60, 2-3:start"),
+                                sc::ParseScript("wait_event lobby_open, 1-2:x")},
+                               35, [&now] { return now; });
   CHECK(Buttons(driver) == rex::input::X_INPUT_GAMEPAD_A);
   now = 2.5;
   CHECK(Buttons(driver) == 0);  // waiting
@@ -662,8 +662,7 @@ TEST_CASE("Placement order sorts only port-known pads", "[input][slots][ids]") {
   CHECK(rex::input::PlacementOrder(pads) == std::vector<size_t>{2, 1, 4, 3, 0});
 }
 
-TEST_CASE("Relaunch: identical pads get the same players from their ports",
-          "[input][slots][ids]") {
+TEST_CASE("Relaunch: identical pads get the same players from their ports", "[input][slots][ids]") {
   const char* ports[] = {"14100000", "14200000", "14300000", "14400000"};
   auto launch = [&](std::vector<int> enumeration) {
     InputSystem input(nullptr);
@@ -736,8 +735,8 @@ const char* kBtAddresses[] = {"98:7a:14:00:00:01", "98:7a:14:00:00:02", "98:7a:1
 
 TEST_CASE("Bluetooth address normalises and sits after port in the chain",
           "[input][slots][ids][bt]") {
-  using rex::input::NormalizeBluetoothAddress;
   using rex::input::IdentitySource;
+  using rex::input::NormalizeBluetoothAddress;
   using rex::input::ResolveDeviceIdentity;
   CHECK(NormalizeBluetoothAddress("F0-B1-7A-21-4C-39") == "f0:b1:7a:21:4c:39");
   CHECK(NormalizeBluetoothAddress("f0:b1:7a:21:4c:39") == "f0:b1:7a:21:4c:39");
@@ -831,10 +830,8 @@ TEST_CASE("Relaunch: identical Bluetooth pads get the same players from their ad
     }
     return by_address;
   };
-  const std::map<std::string, int32_t> expected = {{kBtAddresses[0], 0},
-                                                   {kBtAddresses[1], 1},
-                                                   {kBtAddresses[2], 2},
-                                                   {kBtAddresses[3], 3}};
+  const std::map<std::string, int32_t> expected = {
+      {kBtAddresses[0], 0}, {kBtAddresses[1], 1}, {kBtAddresses[2], 2}, {kBtAddresses[3], 3}};
   CHECK(launch({0, 1, 2, 3}) == expected);
   CHECK(launch({3, 1, 0, 2}) == expected);
   CHECK(launch({2, 3, 1, 0}) == expected);
@@ -847,8 +844,7 @@ TEST_CASE("Placement order: USB pads by port, then Bluetooth pads by address",
   CHECK(rex::input::PlacementOrder(pads) == std::vector<size_t>{3, 1, 2, 0});
 }
 
-TEST_CASE("Hot-plug of one of four Bluetooth pads through InputSystem",
-          "[input][slots][ids][bt]") {
+TEST_CASE("Hot-plug of one of four Bluetooth pads through InputSystem", "[input][slots][ids][bt]") {
   InputSystem input(nullptr);
   auto driver_owner = std::make_unique<IdentityDriver>();
   IdentityDriver* driver = driver_owner.get();

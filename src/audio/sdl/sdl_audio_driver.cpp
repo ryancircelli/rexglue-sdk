@@ -98,12 +98,14 @@ bool SDLAudioDriver::Initialize() {
   // first thing worth knowing when a report says the balance is wrong on one
   // speaker setup and right on another.
   const char* device_name = SDL_GetAudioDeviceName(sdl_device);
-  REXAPU_INFO("audio endpoint '{}': {} ch, {} Hz, format 0x{:04X}; submitting {} ch; device buffer {} sample "
-              "frames ({:.2f} ms)",
-              device_name ? device_name : "?", obtained_spec.channels, obtained_spec.freq,
-              static_cast<uint32_t>(obtained_spec.format), static_cast<int>(sdl_device_channels_),
-              device_sample_frames,
-              obtained_spec.freq ? 1000.0 * device_sample_frames / obtained_spec.freq : 0.0);
+  REXAPU_INFO(
+      "audio endpoint '{}': {} ch, {} Hz, format 0x{:04X}; submitting {} ch; device buffer {} "
+      "sample "
+      "frames ({:.2f} ms)",
+      device_name ? device_name : "?", obtained_spec.channels, obtained_spec.freq,
+      static_cast<uint32_t>(obtained_spec.format), static_cast<int>(sdl_device_channels_),
+      device_sample_frames,
+      obtained_spec.freq ? 1000.0 * device_sample_frames / obtained_spec.freq : 0.0);
 
   if (!SDL_ResumeAudioDevice(sdl_device)) {
     REXAPU_ERROR("SDL_ResumeAudioDevice() failed: {}", SDL_GetError());

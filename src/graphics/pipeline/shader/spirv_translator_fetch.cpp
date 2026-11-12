@@ -2039,10 +2039,10 @@ void SpirvShaderTranslator::ProcessTextureFetchInstruction(
             builder_->makeIntConstant(int((fetch_constant_word_0_index + 3) & 3)));
         spv::Id fetch_constant_word_3_signed = builder_->createUnaryOp(
             spv::OpBitcast, type_int_,
-            builder_->createLoad(builder_->createAccessChain(spv::StorageClassUniform,
-                                                             uniform_fetch_constants_,
-                                                             id_vector_temp_),
-                                 spv::NoPrecision));
+            builder_->createLoad(
+                builder_->createAccessChain(spv::StorageClassUniform, uniform_fetch_constants_,
+                                            id_vector_temp_),
+                spv::NoPrecision));
         spv::Id result_exponent_bias = builder_->createBinBuiltinCall(
             type_float_, ext_inst_glsl_std_450_, GLSLstd450Ldexp, const_float_1_,
             builder_->createTriOp(spv::OpBitFieldSExtract, type_int_, fetch_constant_word_3_signed,

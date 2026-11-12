@@ -1666,7 +1666,7 @@ static uint32_t GpuSwapInline(uint32_t value, Endian endianness) {
       return ((value >> 16) & 0xFFFF) | (value << 16);
   }
 }
-}
+}  // namespace rex::graphics::xenos
 
 namespace rex::graphics::xenos {
 static const char* const g_primtype_human_names[] = {"none",
@@ -1695,6 +1695,7 @@ static const char* const g_primtype_human_names[] = {"none",
 
 inline const char* GetPrimitiveTypeEnglishDescription(xenos::PrimitiveType prim_type) {
   auto index = static_cast<uint32_t>(prim_type);
-  return index < std::size(g_primtype_human_names) ? g_primtype_human_names[index] : "patch/unknown";
+  return index < std::size(g_primtype_human_names) ? g_primtype_human_names[index]
+                                                   : "patch/unknown";
 }
-}
+}  // namespace rex::graphics::xenos

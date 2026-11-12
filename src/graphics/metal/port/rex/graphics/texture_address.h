@@ -64,11 +64,10 @@ namespace texture_address {
 // accurate estimate (but in this case too small rather than too large) is when
 // the width exceeds the pitch.
 constexpr unsigned int kStoragePitchHeightAlignmentBlocksLog2 = 5;
-constexpr uint32_t kStoragePitchHeightAlignmentBlocks =
-    uint32_t(1) << kStoragePitchHeightAlignmentBlocksLog2;
+constexpr uint32_t kStoragePitchHeightAlignmentBlocks = uint32_t(1)
+                                                        << kStoragePitchHeightAlignmentBlocksLog2;
 constexpr unsigned int kStorageDepthAlignmentBlocksLog2 = 2;
-constexpr uint32_t kStorageDepthAlignmentBlocks =
-    uint32_t(1) << kStorageDepthAlignmentBlocksLog2;
+constexpr uint32_t kStorageDepthAlignmentBlocks = uint32_t(1) << kStorageDepthAlignmentBlocksLog2;
 
 // 2D tiling from:
 // https://github.com/BinomialLLC/crunch/blob/36479bc697be19168daafbf15f47f3c60ccec004/inc/crn_decomp.h#L4107
@@ -172,15 +171,13 @@ constexpr unsigned int kMacroTileDepthLog2 = 2;
 constexpr uint32_t kMacroTileDepth = uint32_t(1) << kMacroTileDepthLog2;
 
 template <typename Address>
-Address TiledCombine(const Address outer_inner_bytes, const uint32_t bank,
-                     const uint32_t pipe, const uint32_t y_lsb) {
+Address TiledCombine(const Address outer_inner_bytes, const uint32_t bank, const uint32_t pipe,
+                     const uint32_t y_lsb) {
   assert_true(bank <= 0b1);
   assert_true(pipe <= 0b11);
   assert_true(y_lsb <= 0b1);
-  return int32_t((y_lsb << 4) | (pipe << 6) | (bank << 11)) |
-         (outer_inner_bytes & 0b1111) |
-         (((outer_inner_bytes >> 4) & 0b1) << 5) |
-         (((outer_inner_bytes >> 5) & 0b111) << 8) |
+  return int32_t((y_lsb << 4) | (pipe << 6) | (bank << 11)) | (outer_inner_bytes & 0b1111) |
+         (((outer_inner_bytes >> 4) & 0b1) << 5) | (((outer_inner_bytes >> 5) & 0b111) << 8) |
          (outer_inner_bytes >> 8 << 12);
 }
 
@@ -188,21 +185,18 @@ Address TiledCombine(const Address outer_inner_bytes, const uint32_t bank,
 // per block, though it's not even clear if the hardware allows pitches greater
 // than 8192, the maximum texture size, but the pitch field in a texture fetch
 // constant is 14 bits wide).
-inline int32_t Tiled2D(const int32_t x, const int32_t y,
-                       const uint32_t pitch_aligned,
+inline int32_t Tiled2D(const int32_t x, const int32_t y, const uint32_t pitch_aligned,
                        const unsigned int bytes_per_block_log2) {
   // Expecting that all the needed rounding (not only to 32x32, but also to a
   // power of two for mips) is done before the call so this function works with
   // the actual storage dimensions.
   assert_zero(pitch_aligned & (kStoragePitchHeightAlignmentBlocks - 1));
   const int32_t outer_blocks =
-      ((y >> kMacroTileHeight2DLog2) *
-           int32_t(pitch_aligned >> kMacroTileWidthLog2) +
+      ((y >> kMacroTileHeight2DLog2) * int32_t(pitch_aligned >> kMacroTileWidthLog2) +
        (x >> kMacroTileWidthLog2))
       << 6;
   const int32_t inner_blocks = (((y >> 1) & 0b111) << 3) | (x & 0b111);
-  const int32_t outer_inner_bytes = (outer_blocks | inner_blocks)
-                                    << bytes_per_block_log2;
+  const int32_t outer_inner_bytes = (outer_blocks | inner_blocks) << bytes_per_block_log2;
   const uint32_t bank = (y >> 4) & 0b1;
   const uint32_t pipe = ((x >> 3) & 0b11) ^ (((y >> 3) & 0b1) << 1);
   return TiledCombine(outer_inner_bytes, bank, pipe, y & 1);
@@ -212,8 +206,7 @@ inline int32_t Tiled2D(const int32_t x, const int32_t y,
 // bytes per block). This also means that 32 (more precisely, 27) bits is always
 // enough for the page index within a subresource.
 inline int64_t Tiled3D(const int32_t x, const int32_t y, const int32_t z,
-                       const uint32_t pitch_aligned,
-                       const uint32_t height_aligned,
+                       const uint32_t pitch_aligned, const uint32_t height_aligned,
                        const unsigned int bytes_per_block_log2) {
   // Expecting that all the needed rounding (not only to 32x32x4, but also to a
   // power of two for mips) is done before the call so this function works with
@@ -223,23 +216,20 @@ inline int64_t Tiled3D(const int32_t x, const int32_t y, const int32_t z,
   // The absolute of `outer_blocks` is below (1024 / 4) * (2048 / 16) *
   // (16384 / 32) * 128 = 2^31.
   const int32_t outer_blocks =
-      ((((z >> kMacroTileDepthLog2) *
-             (height_aligned >> kMacroTileHeight3DLog2) +
+      ((((z >> kMacroTileDepthLog2) * (height_aligned >> kMacroTileHeight3DLog2) +
          (y >> kMacroTileHeight3DLog2)) *
         int32_t(pitch_aligned >> kMacroTileWidthLog2)) +
        (x >> kMacroTileWidthLog2))
       << 7;
-  const int32_t inner_blocks =
-      ((z & 0b11) << 5) | (((y >> 1) & 0b11) << 3) | (x & 0b111);
-  const int64_t outer_inner_bytes = int64_t(outer_blocks | inner_blocks)
-                                    << bytes_per_block_log2;
+  const int32_t inner_blocks = ((z & 0b11) << 5) | (((y >> 1) & 0b11) << 3) | (x & 0b111);
+  const int64_t outer_inner_bytes = int64_t(outer_blocks | inner_blocks) << bytes_per_block_log2;
   const uint32_t bank = ((y >> 3) ^ (z >> 2)) & 0b1;
   const uint32_t pipe = ((x >> 3) & 0b11) ^ (bank << 1);
   return TiledCombine(outer_inner_bytes, bank, pipe, y & 1);
 }
 
 }  // namespace texture_address
-}  // namespace gpu
-}  // namespace xe
+}  // namespace graphics
+}  // namespace rex
 
 #endif  // XENIA_GPU_TEXTURE_ADDRESS_H_

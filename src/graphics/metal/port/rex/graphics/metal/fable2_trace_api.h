@@ -28,7 +28,8 @@ typedef struct Fable2FrApi {
   void (*emit)(uint16_t type, uint32_t a, uint32_t b, uint64_t v, uint64_t t);
   // Guest swap: advances the global frame id, feeds the frame-gap / hang detectors.
   uint32_t (*frame_swap)(void);
-  // Presenter paint on the UI thread (reported in the hang detail; the hang trigger is the swap stall alone).
+  // Presenter paint on the UI thread (reported in the hang detail; the hang trigger is the swap
+  // stall alone).
   void (*paint)(void);
   // Asynchronous trigger (rate-limited per reason); detail may be NULL.
   void (*trigger)(const char* reason, const char* detail);

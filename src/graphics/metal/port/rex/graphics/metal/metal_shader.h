@@ -37,8 +37,7 @@ class MetalShader : public DxbcShader {
     ~MetalTranslation();
 
     // Install a stage-compile result as Metal library/function state.
-    bool InstallMetal(MTL::Device* device,
-                      const MetalStageCompileResult& result,
+    bool InstallMetal(MTL::Device* device, const MetalStageCompileResult& result,
                       uint64_t* out_new_library_ms = nullptr,
                       bool* out_new_library_created = nullptr);
 
@@ -76,8 +75,7 @@ class MetalShader : public DxbcShader {
     }
     // Creates a library from optimized bytes and publishes its function.
     // Returns false (nothing published) when Metal rejects it.
-    bool InstallOptimizedMetal(MTL::Device* device,
-                               const std::vector<uint8_t>& metallib);
+    bool InstallOptimizedMetal(MTL::Device* device, const std::vector<uint8_t>& metallib);
     // Marks the installed library as the optimized one (cache hit at install).
     void MarkInstalledAsOptimized();
     // FABLE2_NATIVE_XLATE (docs/native-translator.md): publishes a library
@@ -96,21 +94,15 @@ class MetalShader : public DxbcShader {
                               const std::string& function_name);
     // Whether the installed library is the native translation (no converter
     // library exists for this shader).
-    bool is_native_primary() const {
-      return native_primary_.load(std::memory_order_acquire);
-    }
-    bool is_native_xlate() const {
-      return native_xlate_.load(std::memory_order_acquire);
-    }
+    bool is_native_primary() const { return native_primary_.load(std::memory_order_acquire); }
+    bool is_native_xlate() const { return native_xlate_.load(std::memory_order_acquire); }
     // Entry point name inside optimized_library() (native or converter).
     const std::string& optimized_function_name() const {
       return is_native_xlate() ? native_function_name_ : function_name_;
     }
     // Draw count (lookups), used to optimize the hottest shaders first.
     void NoteUse() { use_count_.fetch_add(1, std::memory_order_relaxed); }
-    uint32_t use_count() const {
-      return use_count_.load(std::memory_order_relaxed);
-    }
+    uint32_t use_count() const { return use_count_.load(std::memory_order_relaxed); }
     // 0 none, 1 queued for background optimization, 2 done (ready or failed).
     std::atomic<uint8_t>& native_shader_state() { return native_shader_state_; }
 
@@ -170,9 +162,8 @@ class MetalShader : public DxbcShader {
     std::atomic<bool> native_primary_{false};
   };
 
-  MetalShader(xenos::ShaderType shader_type, uint64_t ucode_data_hash,
-              const uint32_t* ucode_dwords, size_t ucode_dword_count,
-              std::endian ucode_source_endian = std::endian::big);
+  MetalShader(xenos::ShaderType shader_type, uint64_t ucode_data_hash, const uint32_t* ucode_dwords,
+              size_t ucode_dword_count, std::endian ucode_source_endian = std::endian::big);
 
   struct DrawConstantMetadata {
     DxbcShader::FetchConstantDwordMask shader_fetch_constant_dword_mask = {};
@@ -186,24 +177,14 @@ class MetalShader : public DxbcShader {
   // identifiers (used instead of hashes to make sure collisions can't happen)
   // of binding layouts used by the shader, for invalidation if a shader with an
   // incompatible layout was bound.
-  size_t GetTextureBindingLayoutUserUID() const {
-    return texture_binding_layout_user_uid_;
-  }
-  size_t GetSamplerBindingLayoutUserUID() const {
-    return sampler_binding_layout_user_uid_;
-  }
+  size_t GetTextureBindingLayoutUserUID() const { return texture_binding_layout_user_uid_; }
+  size_t GetSamplerBindingLayoutUserUID() const { return sampler_binding_layout_user_uid_; }
   // Modifications of the same shader can be translated on different threads.
   // The "set" function must only be called if "enter" returned true - these are
   // set up only once.
-  bool EnterBindingLayoutUserUIDSetup() {
-    return !binding_layout_user_uids_set_up_.test_and_set();
-  }
-  void SetTextureBindingLayoutUserUID(size_t uid) {
-    texture_binding_layout_user_uid_ = uid;
-  }
-  void SetSamplerBindingLayoutUserUID(size_t uid) {
-    sampler_binding_layout_user_uid_ = uid;
-  }
+  bool EnterBindingLayoutUserUIDSetup() { return !binding_layout_user_uids_set_up_.test_and_set(); }
+  void SetTextureBindingLayoutUserUID(size_t uid) { texture_binding_layout_user_uid_ = uid; }
+  void SetSamplerBindingLayoutUserUID(size_t uid) { sampler_binding_layout_user_uid_ = uid; }
 
   // [ssmask] FABLE2_EFFECTS_FOOTPRINT_VARIANT: the fetch constants of the 2D
   // texture fetches with a nonzero texel offset along x (bits 0-31) and
@@ -225,7 +206,7 @@ class MetalShader : public DxbcShader {
 };
 
 }  // namespace metal
-}  // namespace gpu
-}  // namespace xe
+}  // namespace graphics
+}  // namespace rex
 
 #endif  // XENIA_GPU_METAL_METAL_SHADER_H_

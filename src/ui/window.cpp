@@ -44,10 +44,11 @@ REXCVAR_DEFINE_INT32(monitor, 0, "UI/Window",
                      "second monitor, etc.)")
     .range(0, 16);
 
-// Automated test runs start the game in the background: a window that comes up in front and takes the keyboard
-// would steal the desktop from whoever is working on the machine during the run.
+// Automated test runs start the game in the background: a window that comes up in front and takes
+// the keyboard would steal the desktop from whoever is working on the machine during the run.
 REXCVAR_DEFINE_BOOL(window_start_minimized, false, "UI/Window",
-                    "Start the window minimized, without activating the app or taking focus, and windowed (fullscreen "
+                    "Start the window minimized, without activating the app or taking focus, and "
+                    "windowed (fullscreen "
                     "is skipped at start). For test runs")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 

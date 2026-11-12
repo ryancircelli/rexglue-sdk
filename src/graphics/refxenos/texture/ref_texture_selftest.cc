@@ -82,6 +82,48 @@ struct ClassCount {
   std::string example;
 };
 
+int TestReverse1() {
+  const uint32_t w = 16, h = 2, base = 0x300000;
+  uint32_t d[6];
+  MakeFetch(k_1_REVERSE, w, h, base, d);
+  std::vector<uint8_t> bytes(256, 0);
+  bytes[0] = 0x81;
+  bytes[1] = 0x42;
+  bytes[4] = 0x18;
+  bytes[5] = 0x24;
+  RangeMemory mem;
+  mem.Add(base, bytes);
+  Fetch f = Fetch::Parse(d);
+  DecodedTexels t;
+  Diag diag;
+  if (!DecodeLevelUnsignedComponents(f, mem, 0, 0, &t, &diag)) {
+    std::printf("1_REVERSE: decode failed: %s\n", diag.error.c_str());
+    return 1;
+  }
+  const uint8_t expected[2][2] = {{0x81, 0x42}, {0x18, 0x24}};
+  int failures = 0;
+  for (uint32_t y = 0; y < h; ++y) {
+    for (uint32_t x = 0; x < w; ++x) {
+      float want = (expected[y][x / 8] >> (7 - x % 8)) & 1;
+      for (uint32_t c = 0; c < 4; ++c) {
+        if (t.rgba[(y * w + x) * 4 + c] != want) {
+          std::printf("1_REVERSE: texel (%u,%u).%u got %g want %g\n", x, y,
+                      c, t.rgba[(y * w + x) * 4 + c], want);
+          ++failures;
+        }
+      }
+      float sampled[4];
+      if (!DecodeTexelPreSwizzle(f, mem, 0, 0, x, y, 0, sampled, &diag) ||
+          sampled[0] != want) {
+        std::printf("1_REVERSE: point decode mismatch at (%u,%u)\n", x, y);
+        ++failures;
+      }
+    }
+  }
+  std::printf("1_REVERSE: 32 texels, %d mismatches\n", failures);
+  return failures;
+}
+
 int TestBc() {
   std::mt19937 rng(12345);
   struct Case {
@@ -281,6 +323,7 @@ int TestSample() {
 int main() {
   int f = 0;
   f += TestTiling();
+  f += TestReverse1();
   int bc = TestBc();
   if (bc) std::printf("BC: %d disagreements larger than 1/255\n", bc);
   f += bc;

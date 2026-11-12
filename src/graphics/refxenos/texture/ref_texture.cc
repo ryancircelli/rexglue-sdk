@@ -120,7 +120,7 @@ uint32_t Fetch::layers() const {
 
 const FormatInfo& GetFormatInfo(uint32_t format) {
   static const FormatInfo kInfo[64] = {
-      {"1_REVERSE", 1, 1, 1, false},
+      {"1_REVERSE", 1, 1, 1, true},
       {"1", 1, 1, 1, false},
       {"8", 1, 1, 8, true},
       {"1_5_5_5", 1, 1, 16, true},
@@ -363,7 +363,8 @@ bool GetLevelLocation(const Fetch& f, uint32_t level, LevelLocation* out,
       rows_texels = std::max(NextPow2(f.height) >> lvl, 1u);
     }
     *pitch_blocks = AlignUp(DivUp(row_texels, fi.block_w), 32);
-    *row_bytes = *pitch_blocks * bpb;
+    *row_bytes = fi.bits_per_block == 1 ? *pitch_blocks / 8
+                                        : *pitch_blocks * bpb;
     if (!f.tiled && !is_base) *row_bytes = AlignUp(*row_bytes, 256);
     *slice_rows = f.dimension == kDim1D
                       ? 1
@@ -948,10 +949,74 @@ static float ComponentValue(const Fetch& f, uint32_t base_format,
   }
 }
 
+static bool DecodeReverseTexel(const Fetch& f, const GuestMemory& mem,
+                               uint32_t level, uint32_t layer, uint32_t x,
+                               uint32_t y, uint32_t z, uint32_t* raw,
+                               Diag* diag) {
+  LevelLocation loc;
+  if (!GetLevelLocation(f, level, &loc, diag)) return false;
+  if (f.tiled) {
+    diag->error = "tiled 1_REVERSE textures are unsupported";
+    return false;
+  }
+  diag->Use("linear.address");
+  diag->Use("format.1_reverse");
+  uint32_t addr = loc.address + layer * loc.layer_stride_bytes +
+                  (z * loc.slice_rows_blocks + y) * loc.row_pitch_bytes + x / 8;
+  uint8_t byte;
+  if (!mem.Read(addr, &byte, 1)) {
+    diag->error = "guest read failed for 1_REVERSE texture";
+    return false;
+  }
+  *raw = (byte >> (7 - x % 8)) & 1;
+  return true;
+}
+
 static bool DecodeLevelImpl(const Fetch& f, const GuestMemory& mem,
                             uint32_t level, uint32_t layer, bool apply_fetch,
                             DecodedTexels* out, Diag* diag) {
   diag->Use("fetch.fields");
+  if (f.format == k_1_REVERSE) {
+    uint32_t w = std::max(f.width >> level, 1u);
+    uint32_t h = std::max(f.height >> level, 1u);
+    uint32_t d = std::max(f.depth3d() >> level, 1u);
+    out->width = w;
+    out->height = h;
+    out->depth = d;
+    out->rgba.resize(size_t(w) * h * d * 4);
+    for (uint32_t z = 0; z < d; ++z) {
+      for (uint32_t y = 0; y < h; ++y) {
+        for (uint32_t x = 0; x < w; ++x) {
+          uint32_t raw;
+          if (!DecodeReverseTexel(f, mem, level, layer, x, y, z, &raw, diag)) {
+            return false;
+          }
+          float data[4];
+          for (uint32_t c = 0; c < 4; ++c) {
+            Comp comp = Fixed(raw, 1);
+            data[c] = apply_fetch
+                          ? ComponentValue(f, f.format, comp, f.sign[c], diag)
+                          : UNorm(raw, 1);
+          }
+          float* o = &out->rgba[((size_t(z) * h + y) * w + x) * 4];
+          if (!apply_fetch) {
+            std::memcpy(o, data, sizeof(data));
+            continue;
+          }
+          diag->Use("format.replicate");
+          diag->Use("swizzle");
+          float scale = std::ldexp(1.0f, f.exp_adjust);
+          for (uint32_t c = 0; c < 4; ++c) {
+            uint32_t s = f.swizzle[c];
+            float v = s < 4 ? data[s] : float(s & 1);
+            if ((s & 0b101) != 4 && f.exp_adjust) v *= scale;
+            o[c] = v;
+          }
+        }
+      }
+    }
+    return true;
+  }
   LevelBlocks blocks;
   if (!ReadLevelBlocks(f, mem, level, layer, &blocks, diag)) return false;
   const FormatInfo& fi = GetFormatInfo(f.format);
@@ -1030,6 +1095,19 @@ bool DecodeTexelPreSwizzle(const Fetch& f, const GuestMemory& mem,
   if (!fi.supported) {
     diag->error = std::string("unsupported format ") + fi.name;
     return false;
+  }
+  if (f.format == k_1_REVERSE) {
+    uint32_t raw;
+    if (!DecodeReverseTexel(f, mem, level, layer, x, y, z, &raw, diag)) {
+      return false;
+    }
+    diag->Use("format.replicate");
+    Comp comp = Fixed(raw, 1);
+    for (uint32_t c = 0; c < 4; ++c) {
+      uint32_t sign = f.sign[c] == kSigned ? kSigned : kUnsigned;
+      out[c] = ComponentValue(f, f.format, comp, sign, diag);
+    }
+    return true;
   }
   LevelLocation loc;
   if (!GetLevelLocation(f, level, &loc, diag)) return false;

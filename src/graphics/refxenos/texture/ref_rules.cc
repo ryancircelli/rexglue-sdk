@@ -43,6 +43,11 @@ static const RuleInfo kRules[] = {
      "Endian mode swaps bytes of each 16/32-bit memory word "
      "(8in16, 8in32, 16in32).",
      "XDK GPUENDIAN.htm"},
+    {"format.1_reverse", 1, RuleStatus::kDocumented,
+     "1_REVERSE is one bit per texel; texel 0 is bit 7 (MSB) of each byte, "
+     "then descending bit order.",
+     "XDK GPUTEXTUREFORMAT.htm; SDK "
+     "src/graphics/pipeline/texture/info_formats.cpp:24 (1 bit per texel)"},
     {"format.layout", 1, RuleStatus::kXenia,
      "Packed formats: X in the least significant bits after the endian "
      "swap; the name lists fields from the most significant (W) down.",

@@ -19399,7 +19399,7 @@
 +}  // namespace xe
 --- a/src/graphics/pipeline/texture/cache.cpp
 +++ b/src/graphics/pipeline/texture/cache.cpp
-@@ -9,221 +9,133 @@
+@@ -9,223 +9,139 @@
   * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
   */
  
@@ -19598,6 +19598,8 @@
 -    {4, 4, 4, 3},
 -    // kDepthSNorm
 -    {4, 4, 4, 3},
+-    // kDXT3ToRGBA32FSNorm
+-    {4, 4, 16, 1},
 +#include "rex/graphics/pipeline/texture/cache.h"
 +
 +#include "rex/chrono/clock.h"
@@ -19698,6 +19700,12 @@
 +        {4, 3},   // kDepthUnorm
 +        {4, 3},   // kDepthFloat
 +        {4, 3},   // kDepthSNorm
++        {16, 4},  // kR5G5B5A1ToRGBA32FSNorm
++        {16, 4},  // kR5G6B5ToRGBA32FSNorm
++        {16, 4},  // kR5G5B6ToRGBA32FSNorm
++        {16, 4},  // kR4G4B4A4ToRGBA32FSNorm
++        {16, 3},  // kR2G10B10A10ToRGBA32FSNorm
++        {16, 1},  // kDXT3ToRGBA32FSNorm
  };
  
 -TextureCache::TextureCache(const RegisterFile& register_file, SharedMemory& shared_memory,

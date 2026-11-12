@@ -160,6 +160,40 @@ jobs.append(('gpu',depth_snorm,'texture_load_depth_snorm_cs',[],
 jobs.append(('gpu',depth_snorm_scaled,'texture_load_depth_snorm_scaled_cs',[],
              [xenia/'gpu/shaders'],[depth_snorm_scaled,endian_patch]))
 
+packed_snorm_shader_specs = [
+ ('r5g5b5a1', 'texture_load_r5g5b5a1_rgba32f_snorm'),
+ ('r5g6b5', 'texture_load_r5g6b5_rgba32f_snorm'),
+ ('r5g5b6', 'texture_load_r5g5b6_rgba32f_snorm'),
+ ('r4g4b4a4', 'texture_load_r4g4b4a4_rgba32f_snorm'),
+ ('r2g10b10a10', 'texture_load_r2g10b10a10_rgba32f_snorm'),
+]
+packed_snorm_deps = [
+ metal_dir/'shaders/packed_snorm_formats.xesli',
+ metal_dir/'shaders/texture_load_packed16_to_rgba32.xesli',
+ overlay/'gpu/shaders/texture_load_32bpb_64bpb.xesli',
+ hendeca_patch,
+ xenia/'gpu/shaders/pixel_formats.xesli',
+ xenia/'gpu/shaders/texture_load.xesli',
+ xenia/'gpu/shaders/texture_load_32bpb_64bpb.xesli',
+]
+for _, stem in packed_snorm_shader_specs:
+ for scaled in [False, True]:
+  source = metal_dir/'shaders'/(stem+('_scaled' if scaled else '')+'.cs.xesl')
+  name = source.name.replace('.cs.xesl', '_cs')
+  jobs.append(('gpu',source,name,[],[overlay/'gpu/shaders',xenia/'gpu/shaders'],
+               [source]+packed_snorm_deps))
+dxt3_snorm_deps = [
+ metal_dir/'shaders/packed_snorm_formats.xesli',
+ overlay/'gpu/shaders/pixel_formats.xesli',
+ overlay/'gpu/shaders/texture_load.xesli',
+ xenia/'gpu/shaders',
+]
+for scaled in [False, True]:
+ source = metal_dir/'shaders'/('texture_load_dxt3_rgba32f_snorm'+('_scaled' if scaled else '')+'.cs.xesl')
+ name = source.name.replace('.cs.xesl', '_cs')
+ jobs.append(('gpu',source,name,[],[overlay/'gpu/shaders',xenia/'gpu/shaders',metal_dir/'shaders'],
+              [source]+dxt3_snorm_deps))
+
 def compile(job):
  area,source,name,defines=job[:4]
  includes=job[4] if len(job)>4 else []

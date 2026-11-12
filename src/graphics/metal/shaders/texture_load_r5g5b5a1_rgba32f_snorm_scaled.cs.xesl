@@ -1,0 +1,2 @@
+#define XE_TEXTURE_LOAD_RESOLUTION_SCALED
+#include "texture_load_r5g5b5a1_rgba32f_snorm.cs.xesl"

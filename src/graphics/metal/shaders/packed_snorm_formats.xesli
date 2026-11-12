@@ -1,0 +1,120 @@
+float XePackedSNormComponent(uint code, uint bits) {
+  int value = int(code << (32u - bits)) >> int(32u - bits);
+  int max_value = bits == 1u ? 1 : int((1u << (bits - 1u)) - 1u);
+  return float(value < -max_value ? -max_value : value) / float(max_value);
+}
+
+void XeDXT3SNormTexel(uint color, uint alpha, out_param_xe(uint4_xe, texel)) {
+  texel = float_bits_to_uint_xe(float4_xe(
+      XePackedSNormComponent(color & 255u, 8u),
+      XePackedSNormComponent((color >> 8u) & 255u, 8u),
+      XePackedSNormComponent((color >> 16u) & 255u, 8u),
+      XePackedSNormComponent(alpha & 15u, 4u)));
+}
+
+uint4_xe XeR5G5B5A1SNormToRGBA32F(uint packed) {
+  return float_bits_to_uint_xe(float4_xe(
+      XePackedSNormComponent(packed & 31u, 5u),
+      XePackedSNormComponent((packed >> 5u) & 31u, 5u),
+      XePackedSNormComponent((packed >> 10u) & 31u, 5u),
+      XePackedSNormComponent((packed >> 15u) & 1u, 1u)));
+}
+uint4_xe XeR5G6B5SNormToRGBA32F(uint packed) {
+  return float_bits_to_uint_xe(float4_xe(
+      XePackedSNormComponent(packed & 31u, 5u),
+      XePackedSNormComponent((packed >> 5u) & 63u, 6u),
+      XePackedSNormComponent((packed >> 11u) & 31u, 5u),
+      XePackedSNormComponent((packed >> 11u) & 31u, 5u)));
+}
+uint4_xe XeR5G5B6SNormToRGBA32F(uint packed) {
+  return float_bits_to_uint_xe(float4_xe(
+      XePackedSNormComponent(packed & 31u, 5u),
+      XePackedSNormComponent((packed >> 5u) & 31u, 5u),
+      XePackedSNormComponent((packed >> 10u) & 63u, 6u),
+      XePackedSNormComponent((packed >> 10u) & 63u, 6u)));
+}
+uint4_xe XeR4G4B4A4SNormToRGBA32F(uint packed) {
+  return float_bits_to_uint_xe(float4_xe(
+      XePackedSNormComponent(packed & 15u, 4u),
+      XePackedSNormComponent((packed >> 4u) & 15u, 4u),
+      XePackedSNormComponent((packed >> 8u) & 15u, 4u),
+      XePackedSNormComponent((packed >> 12u) & 15u, 4u)));
+}
+
+void XeR5G5B5A1SNormToRGBA32F(
+    uint4_xe packed, out_param_xe(uint4_xe, out_0),
+    out_param_xe(uint4_xe, out_1), out_param_xe(uint4_xe, out_2),
+    out_param_xe(uint4_xe, out_3), out_param_xe(uint4_xe, out_4),
+    out_param_xe(uint4_xe, out_5), out_param_xe(uint4_xe, out_6),
+    out_param_xe(uint4_xe, out_7)) {
+  out_0 = XeR5G5B5A1SNormToRGBA32F(packed.x & 0xFFFFu);
+  out_1 = XeR5G5B5A1SNormToRGBA32F(packed.x >> 16u);
+  out_2 = XeR5G5B5A1SNormToRGBA32F(packed.y & 0xFFFFu);
+  out_3 = XeR5G5B5A1SNormToRGBA32F(packed.y >> 16u);
+  out_4 = XeR5G5B5A1SNormToRGBA32F(packed.z & 0xFFFFu);
+  out_5 = XeR5G5B5A1SNormToRGBA32F(packed.z >> 16u);
+  out_6 = XeR5G5B5A1SNormToRGBA32F(packed.w & 0xFFFFu);
+  out_7 = XeR5G5B5A1SNormToRGBA32F(packed.w >> 16u);
+}
+void XeR5G6B5SNormToRGBA32F(
+    uint4_xe packed, out_param_xe(uint4_xe, out_0),
+    out_param_xe(uint4_xe, out_1), out_param_xe(uint4_xe, out_2),
+    out_param_xe(uint4_xe, out_3), out_param_xe(uint4_xe, out_4),
+    out_param_xe(uint4_xe, out_5), out_param_xe(uint4_xe, out_6),
+    out_param_xe(uint4_xe, out_7)) {
+  out_0 = XeR5G6B5SNormToRGBA32F(packed.x & 0xFFFFu);
+  out_1 = XeR5G6B5SNormToRGBA32F(packed.x >> 16u);
+  out_2 = XeR5G6B5SNormToRGBA32F(packed.y & 0xFFFFu);
+  out_3 = XeR5G6B5SNormToRGBA32F(packed.y >> 16u);
+  out_4 = XeR5G6B5SNormToRGBA32F(packed.z & 0xFFFFu);
+  out_5 = XeR5G6B5SNormToRGBA32F(packed.z >> 16u);
+  out_6 = XeR5G6B5SNormToRGBA32F(packed.w & 0xFFFFu);
+  out_7 = XeR5G6B5SNormToRGBA32F(packed.w >> 16u);
+}
+void XeR5G5B6SNormToRGBA32F(
+    uint4_xe packed, out_param_xe(uint4_xe, out_0),
+    out_param_xe(uint4_xe, out_1), out_param_xe(uint4_xe, out_2),
+    out_param_xe(uint4_xe, out_3), out_param_xe(uint4_xe, out_4),
+    out_param_xe(uint4_xe, out_5), out_param_xe(uint4_xe, out_6),
+    out_param_xe(uint4_xe, out_7)) {
+  out_0 = XeR5G5B6SNormToRGBA32F(packed.x & 0xFFFFu);
+  out_1 = XeR5G5B6SNormToRGBA32F(packed.x >> 16u);
+  out_2 = XeR5G5B6SNormToRGBA32F(packed.y & 0xFFFFu);
+  out_3 = XeR5G5B6SNormToRGBA32F(packed.y >> 16u);
+  out_4 = XeR5G5B6SNormToRGBA32F(packed.z & 0xFFFFu);
+  out_5 = XeR5G5B6SNormToRGBA32F(packed.z >> 16u);
+  out_6 = XeR5G5B6SNormToRGBA32F(packed.w & 0xFFFFu);
+  out_7 = XeR5G5B6SNormToRGBA32F(packed.w >> 16u);
+}
+void XeR4G4B4A4SNormToRGBA32F(
+    uint4_xe packed, out_param_xe(uint4_xe, out_0),
+    out_param_xe(uint4_xe, out_1), out_param_xe(uint4_xe, out_2),
+    out_param_xe(uint4_xe, out_3), out_param_xe(uint4_xe, out_4),
+    out_param_xe(uint4_xe, out_5), out_param_xe(uint4_xe, out_6),
+    out_param_xe(uint4_xe, out_7)) {
+  out_0 = XeR4G4B4A4SNormToRGBA32F(packed.x & 0xFFFFu);
+  out_1 = XeR4G4B4A4SNormToRGBA32F(packed.x >> 16u);
+  out_2 = XeR4G4B4A4SNormToRGBA32F(packed.y & 0xFFFFu);
+  out_3 = XeR4G4B4A4SNormToRGBA32F(packed.y >> 16u);
+  out_4 = XeR4G4B4A4SNormToRGBA32F(packed.z & 0xFFFFu);
+  out_5 = XeR4G4B4A4SNormToRGBA32F(packed.z >> 16u);
+  out_6 = XeR4G4B4A4SNormToRGBA32F(packed.w & 0xFFFFu);
+  out_7 = XeR4G4B4A4SNormToRGBA32F(packed.w >> 16u);
+}
+
+uint4_xe XeR2G10B10A10SNormToRGBA32F(uint packed) {
+  return float_bits_to_uint_xe(float4_xe(
+      XePackedSNormComponent(packed & 1023u, 10u),
+      XePackedSNormComponent((packed >> 10u) & 1023u, 10u),
+      XePackedSNormComponent((packed >> 20u) & 1023u, 10u),
+      XePackedSNormComponent(packed >> 30u, 2u)));
+}
+void XeR2G10B10A10SNormToRGBA32F(
+    uint4_xe packed, out_param_xe(uint4_xe, out_0),
+    out_param_xe(uint4_xe, out_1), out_param_xe(uint4_xe, out_2),
+    out_param_xe(uint4_xe, out_3)) {
+  out_0 = XeR2G10B10A10SNormToRGBA32F(packed.x);
+  out_1 = XeR2G10B10A10SNormToRGBA32F(packed.y);
+  out_2 = XeR2G10B10A10SNormToRGBA32F(packed.z);
+  out_3 = XeR2G10B10A10SNormToRGBA32F(packed.w);
+}

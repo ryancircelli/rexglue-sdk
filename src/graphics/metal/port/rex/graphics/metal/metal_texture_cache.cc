@@ -104,9 +104,21 @@ void TexTrace(const char* name) {
 #include "rex/graphics/shaders/bytecode/metal/texture_load_depth_unorm_cs.h"
 #include "rex/graphics/shaders/bytecode/metal/texture_load_depth_unorm_scaled_cs.h"
 #include "rex/graphics/shaders/bytecode/metal/texture_load_depth_snorm_scaled_cs.h"
+#include "rex/graphics/shaders/bytecode/metal/texture_load_r5g5b5a1_rgba32f_snorm_cs.h"
+#include "rex/graphics/shaders/bytecode/metal/texture_load_r5g5b5a1_rgba32f_snorm_scaled_cs.h"
+#include "rex/graphics/shaders/bytecode/metal/texture_load_r5g6b5_rgba32f_snorm_cs.h"
+#include "rex/graphics/shaders/bytecode/metal/texture_load_r5g6b5_rgba32f_snorm_scaled_cs.h"
+#include "rex/graphics/shaders/bytecode/metal/texture_load_r5g5b6_rgba32f_snorm_cs.h"
+#include "rex/graphics/shaders/bytecode/metal/texture_load_r5g5b6_rgba32f_snorm_scaled_cs.h"
+#include "rex/graphics/shaders/bytecode/metal/texture_load_r4g4b4a4_rgba32f_snorm_cs.h"
+#include "rex/graphics/shaders/bytecode/metal/texture_load_r4g4b4a4_rgba32f_snorm_scaled_cs.h"
+#include "rex/graphics/shaders/bytecode/metal/texture_load_r2g10b10a10_rgba32f_snorm_cs.h"
+#include "rex/graphics/shaders/bytecode/metal/texture_load_r2g10b10a10_rgba32f_snorm_scaled_cs.h"
 #include "rex/graphics/shaders/bytecode/metal/texture_load_dxn_rg8_cs.h"
 #include "rex/graphics/shaders/bytecode/metal/texture_load_dxt1_rgba8_cs.h"
 #include "rex/graphics/shaders/bytecode/metal/texture_load_dxt3_rgba8_cs.h"
+#include "rex/graphics/shaders/bytecode/metal/texture_load_dxt3_rgba32f_snorm_cs.h"
+#include "rex/graphics/shaders/bytecode/metal/texture_load_dxt3_rgba32f_snorm_scaled_cs.h"
 #include "rex/graphics/shaders/bytecode/metal/texture_load_dxt3a_cs.h"
 #include "rex/graphics/shaders/bytecode/metal/texture_load_dxt3aas1111_argb4_cs.h"
 #include "rex/graphics/shaders/bytecode/metal/texture_load_dxt3aas1111_bgra4_cs.h"
@@ -1756,6 +1768,9 @@ bool MetalTextureCache::ExecuteTextureMaterialization(
 }
 
 bool MetalTextureCache::IsDecompressionNeededForKey(TextureKey key) const {
+  if (key.format == xenos::TextureFormat::k_DXT2_3 && key.signed_separate) {
+    return true;
+  }
   switch (key.format) {
     case xenos::TextureFormat::k_DXT1:
     case xenos::TextureFormat::k_DXT2_3:
@@ -1802,17 +1817,22 @@ TextureCache::LoadShaderIndex MetalTextureCache::GetLoadShaderIndexForKey(
     case xenos::TextureFormat::k_8_8:
       return kLoadShaderIndex16bpb;
     case xenos::TextureFormat::k_1_5_5_5:
-      return kLoadShaderIndexR5G5B5A1ToB5G5R5A1;
+      return key.signed_separate ? kLoadShaderIndexR5G5B5A1ToRGBA32FSNorm
+                                 : kLoadShaderIndexR5G5B5A1ToB5G5R5A1;
     case xenos::TextureFormat::k_5_6_5:
-      return kLoadShaderIndexR5G6B5ToB5G6R5;
+      return key.signed_separate ? kLoadShaderIndexR5G6B5ToRGBA32FSNorm
+                                 : kLoadShaderIndexR5G6B5ToB5G6R5;
     case xenos::TextureFormat::k_6_5_5:
-      return kLoadShaderIndexR5G5B6ToB5G6R5WithRBGASwizzle;
+      return key.signed_separate ? kLoadShaderIndexR5G5B6ToRGBA32FSNorm
+                                 : kLoadShaderIndexR5G5B6ToB5G6R5WithRBGASwizzle;
     case xenos::TextureFormat::k_8_8_8_8:
       return kLoadShaderIndex32bpb;
     case xenos::TextureFormat::k_2_10_10_10:
-      return kLoadShaderIndex32bpb;
+      return key.signed_separate ? kLoadShaderIndexR2G10B10A10ToRGBA32FSNorm
+                                 : kLoadShaderIndex32bpb;
     case xenos::TextureFormat::k_4_4_4_4:
-      return kLoadShaderIndexRGBA4ToARGB4;
+      return key.signed_separate ? kLoadShaderIndexR4G4B4A4ToRGBA32FSNorm
+                                 : kLoadShaderIndexRGBA4ToARGB4;
     case xenos::TextureFormat::k_10_11_11:
       return key.signed_separate ? kLoadShaderIndexR11G11B10ToRGBA16SNorm
                                  : kLoadShaderIndexR11G11B10ToRGBA16;
@@ -1823,7 +1843,9 @@ TextureCache::LoadShaderIndex MetalTextureCache::GetLoadShaderIndexForKey(
     case xenos::TextureFormat::k_DXT1:
       return decompress ? kLoadShaderIndexDXT1ToRGBA8 : kLoadShaderIndex64bpb;
     case xenos::TextureFormat::k_DXT2_3:
-      return decompress ? kLoadShaderIndexDXT3ToRGBA8 : kLoadShaderIndex128bpb;
+      return key.signed_separate ? kLoadShaderIndexDXT3ToRGBA32FSNorm
+                                 : decompress ? kLoadShaderIndexDXT3ToRGBA8
+                                              : kLoadShaderIndex128bpb;
     case xenos::TextureFormat::k_DXT4_5:
       return decompress ? kLoadShaderIndexDXT5ToRGBA8 : kLoadShaderIndex128bpb;
     case xenos::TextureFormat::k_DXN:
@@ -1915,18 +1937,34 @@ MTL::PixelFormat MetalTextureCache::GetPixelFormatForKey(TextureKey key) const {
     case xenos::TextureFormat::k_8_8:
       return MTL::PixelFormatRG8Unorm;
     case xenos::TextureFormat::k_1_5_5_5:
+      if (key.signed_separate) {
+        return MTL::PixelFormatRGBA32Float;
+      }
       // The load shader emits A in bit 15, R in 10:14, G in 5:9, B in 0:4.
       // Metal's A1BGR5 instead puts A in bit 0, corrupting both color and
       // opacity (especially visible in distant-tree billboard textures).
       return MTL::PixelFormatBGR5A1Unorm;
     case xenos::TextureFormat::k_5_6_5:
+      if (key.signed_separate) {
+        return MTL::PixelFormatRGBA32Float;
+      }
+      return MTL::PixelFormatB5G6R5Unorm;
     case xenos::TextureFormat::k_6_5_5:
+      if (key.signed_separate) {
+        return MTL::PixelFormatRGBA32Float;
+      }
       return MTL::PixelFormatB5G6R5Unorm;
     case xenos::TextureFormat::k_4_4_4_4:
+      if (key.signed_separate) {
+        return MTL::PixelFormatRGBA32Float;
+      }
       return MTL::PixelFormatABGR4Unorm;
     case xenos::TextureFormat::k_8_8_8_8:
       return MTL::PixelFormatRGBA8Unorm;
     case xenos::TextureFormat::k_2_10_10_10:
+      if (key.signed_separate) {
+        return MTL::PixelFormatRGBA32Float;
+      }
       return MTL::PixelFormatRGB10A2Unorm;
     case xenos::TextureFormat::k_10_11_11:
     case xenos::TextureFormat::k_11_11_10:
@@ -1968,6 +2006,9 @@ MTL::PixelFormat MetalTextureCache::GetPixelFormatForKey(TextureKey key) const {
     case xenos::TextureFormat::k_DXT1:
       return decompress ? MTL::PixelFormatRGBA8Unorm : MTL::PixelFormatBC1_RGBA;
     case xenos::TextureFormat::k_DXT2_3:
+      if (key.signed_separate) {
+        return MTL::PixelFormatRGBA32Float;
+      }
       return decompress ? MTL::PixelFormatRGBA8Unorm : MTL::PixelFormatBC2_RGBA;
     case xenos::TextureFormat::k_DXT4_5:
       return decompress ? MTL::PixelFormatRGBA8Unorm : MTL::PixelFormatBC3_RGBA;
@@ -3781,6 +3822,42 @@ bool MetalTextureCache::InitializeLoadPipelines() {
       texture_load_r5g5b6_b5g6r5_swizzle_rbga_scaled_cs_metallib,
       sizeof(texture_load_r5g5b6_b5g6r5_swizzle_rbga_scaled_cs_metallib));
 
+  init_pipeline(TextureCache::kLoadShaderIndexR5G5B5A1ToRGBA32FSNorm,
+                texture_load_r5g5b5a1_rgba32f_snorm_cs_metallib,
+                sizeof(texture_load_r5g5b5a1_rgba32f_snorm_cs_metallib));
+  init_pipeline_scaled(
+      TextureCache::kLoadShaderIndexR5G5B5A1ToRGBA32FSNorm,
+      texture_load_r5g5b5a1_rgba32f_snorm_scaled_cs_metallib,
+      sizeof(texture_load_r5g5b5a1_rgba32f_snorm_scaled_cs_metallib));
+  init_pipeline(TextureCache::kLoadShaderIndexR5G6B5ToRGBA32FSNorm,
+                texture_load_r5g6b5_rgba32f_snorm_cs_metallib,
+                sizeof(texture_load_r5g6b5_rgba32f_snorm_cs_metallib));
+  init_pipeline_scaled(
+      TextureCache::kLoadShaderIndexR5G6B5ToRGBA32FSNorm,
+      texture_load_r5g6b5_rgba32f_snorm_scaled_cs_metallib,
+      sizeof(texture_load_r5g6b5_rgba32f_snorm_scaled_cs_metallib));
+  init_pipeline(TextureCache::kLoadShaderIndexR5G5B6ToRGBA32FSNorm,
+                texture_load_r5g5b6_rgba32f_snorm_cs_metallib,
+                sizeof(texture_load_r5g5b6_rgba32f_snorm_cs_metallib));
+  init_pipeline_scaled(
+      TextureCache::kLoadShaderIndexR5G5B6ToRGBA32FSNorm,
+      texture_load_r5g5b6_rgba32f_snorm_scaled_cs_metallib,
+      sizeof(texture_load_r5g5b6_rgba32f_snorm_scaled_cs_metallib));
+  init_pipeline(TextureCache::kLoadShaderIndexR4G4B4A4ToRGBA32FSNorm,
+                texture_load_r4g4b4a4_rgba32f_snorm_cs_metallib,
+                sizeof(texture_load_r4g4b4a4_rgba32f_snorm_cs_metallib));
+  init_pipeline_scaled(
+      TextureCache::kLoadShaderIndexR4G4B4A4ToRGBA32FSNorm,
+      texture_load_r4g4b4a4_rgba32f_snorm_scaled_cs_metallib,
+      sizeof(texture_load_r4g4b4a4_rgba32f_snorm_scaled_cs_metallib));
+  init_pipeline(TextureCache::kLoadShaderIndexR2G10B10A10ToRGBA32FSNorm,
+                texture_load_r2g10b10a10_rgba32f_snorm_cs_metallib,
+                sizeof(texture_load_r2g10b10a10_rgba32f_snorm_cs_metallib));
+  init_pipeline_scaled(
+      TextureCache::kLoadShaderIndexR2G10B10A10ToRGBA32FSNorm,
+      texture_load_r2g10b10a10_rgba32f_snorm_scaled_cs_metallib,
+      sizeof(texture_load_r2g10b10a10_rgba32f_snorm_scaled_cs_metallib));
+
   init_pipeline(TextureCache::kLoadShaderIndexR10G11B11ToRGBA16,
                 texture_load_r10g11b11_rgba16_cs_metallib,
                 sizeof(texture_load_r10g11b11_rgba16_cs_metallib));
@@ -3894,6 +3971,13 @@ bool MetalTextureCache::InitializeLoadPipelines() {
   init_pipeline(TextureCache::kLoadShaderIndexDXT3ToRGBA8,
                 texture_load_dxt3_rgba8_cs_metallib,
                 sizeof(texture_load_dxt3_rgba8_cs_metallib));
+  init_pipeline(TextureCache::kLoadShaderIndexDXT3ToRGBA32FSNorm,
+                texture_load_dxt3_rgba32f_snorm_cs_metallib,
+                sizeof(texture_load_dxt3_rgba32f_snorm_cs_metallib));
+  init_pipeline_scaled(
+      TextureCache::kLoadShaderIndexDXT3ToRGBA32FSNorm,
+      texture_load_dxt3_rgba32f_snorm_scaled_cs_metallib,
+      sizeof(texture_load_dxt3_rgba32f_snorm_scaled_cs_metallib));
   init_pipeline(TextureCache::kLoadShaderIndexDXT5ToRGBA8,
                 texture_load_dxt5_rgba8_cs_metallib,
                 sizeof(texture_load_dxt5_rgba8_cs_metallib));
@@ -4824,9 +4908,29 @@ uint32_t MetalTextureCache::GetBindlessSRVIndexForBinding(
     return return_null_index_for_dimension();
   }
   metal_texture->tres_bind_serial_ = ++tres_bind_serial_counter_;
+  uint32_t host_swizzle = binding->host_swizzle;
+  if (is_signed) {
+    switch (binding->key.format) {
+      case xenos::TextureFormat::k_1_5_5_5:
+      case xenos::TextureFormat::k_5_6_5:
+      case xenos::TextureFormat::k_6_5_5:
+      case xenos::TextureFormat::k_4_4_4_4:
+      case xenos::TextureFormat::k_2_10_10_10: {
+        // The signed packed formats are materialized as logical RGBA32Float,
+        // so they don't need the host-format swizzle used by their packed
+        // unsigned counterparts.
+        const auto& fetch = register_file().GetTextureFetch(fetch_constant);
+        host_swizzle = GuestToHostSwizzle(
+            fetch.swizzle, xenos::XE_GPU_TEXTURE_SWIZZLE_RGBA);
+        break;
+      }
+      default:
+        break;
+    }
+  }
   MTL::Texture* texture_for_encoder = nullptr;
   uint32_t srv_index = metal_texture->GetOrCreateBindlessSRVIndexAndView(
-      binding->host_swizzle, dimension, is_signed,
+      host_swizzle, dimension, is_signed,
       texture_for_encoder_out ? &texture_for_encoder : nullptr, view_levels);
   if (srv_index == UINT32_MAX) {
     return return_null_index_for_dimension();
@@ -5229,6 +5333,18 @@ xenos::ClampMode MetalTextureCache::NormalizeClampMode(
 
 // GetHostFormatSwizzle implementation
 uint32_t MetalTextureCache::GetHostFormatSwizzle(TextureKey key) const {
+  if (key.signed_separate) {
+    switch (key.format) {
+      case xenos::TextureFormat::k_1_5_5_5:
+      case xenos::TextureFormat::k_5_6_5:
+      case xenos::TextureFormat::k_6_5_5:
+      case xenos::TextureFormat::k_4_4_4_4:
+      case xenos::TextureFormat::k_2_10_10_10:
+        return xenos::XE_GPU_TEXTURE_SWIZZLE_RGBA;
+      default:
+        break;
+    }
+  }
   switch (key.format) {
     case xenos::TextureFormat::k_8:
     case xenos::TextureFormat::k_8_A:
@@ -5294,6 +5410,7 @@ uint32_t MetalTextureCache::GetHostFormatSwizzle(TextureKey key) const {
 bool MetalTextureCache::IsSignedVersionSeparateForFormat(TextureKey key) const {
   switch (key.format) {
     case xenos::TextureFormat::k_DXT3A:
+    case xenos::TextureFormat::k_DXT2_3:
       return true;
     case xenos::TextureFormat::k_16:
       return r16_selection_.unsigned_uses_float ||
@@ -5306,6 +5423,12 @@ bool MetalTextureCache::IsSignedVersionSeparateForFormat(TextureKey key) const {
              rgba16_selection_.signed_uses_float;
     case xenos::TextureFormat::k_10_11_11:
     case xenos::TextureFormat::k_11_11_10:
+      return true;
+    case xenos::TextureFormat::k_1_5_5_5:
+    case xenos::TextureFormat::k_5_6_5:
+    case xenos::TextureFormat::k_6_5_5:
+    case xenos::TextureFormat::k_4_4_4_4:
+    case xenos::TextureFormat::k_2_10_10_10:
       return true;
     case xenos::TextureFormat::k_24_8:
       return true;
@@ -6453,11 +6576,10 @@ MTL::PixelFormat MetalTextureCache::MetalTexture::GetViewPixelFormat(
     // These formats are materialized as 8-bit UNORM texels by the Metal
     // compute decoders. Their channel codes are 8-bit, so the underlying bits
     // are shared by SNORM and UNORM; expose the signed view so the sampler
-    // interprets each texel before filtering. DXT2/3 alpha is only 4-bit, so
-    // this view fixes its 8-bit color channels but needs a separate alpha
-    // transcode (covered by the remaining conformance failures).
-    case xenos::TextureFormat::k_DXT1:
+    // interprets each texel before filtering.
     case xenos::TextureFormat::k_DXT2_3:
+      return MTL::PixelFormatRGBA32Float;
+    case xenos::TextureFormat::k_DXT1:
     case xenos::TextureFormat::k_DXT4_5:
       if (texture_cache_.IsDecompressionNeededForKey(key())) {
         return MTL::PixelFormatRGBA8Snorm;

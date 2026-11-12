@@ -1,0 +1,104 @@
+/** Signed DXT2/3 decode with native four-bit alpha SNORM materialization. */
+
+#include "pixel_formats.xesli"
+#include "texture_load.xesli"
+#include "packed_snorm_formats.xesli"
+
+XE_TEXTURE_LOAD_ENTRY(16)
+{
+  // One thread decodes two DXT3 blocks to 8x4 RGBA32Float texels.
+  XeTextureLoadInfo load_info = XeTextureLoadGetInfo(pass_push_consts_xe);
+  uint3_xe block_index = in_global_thread_id_xe << uint3_xe(1u, 0u, 0u);
+  dont_flatten_xe
+  if (any(greater_than_equal_xe(block_index.xy, load_info.size_blocks.xy))) {
+    return;
+  }
+  uint3_xe texel_index_host = block_index << uint3_xe(2u, 2u, 0u);
+  uint block_offset_host =
+      load_info.host_offset +
+      uint(XeTextureHostLinearOffset(int3_xe(texel_index_host),
+                                     load_info.host_pitch,
+                                     load_info.height_texels, 16u));
+  uint block_offset_guest =
+      XeTextureLoadSourceAddress(load_info, block_index, 4u);
+  uint i;
+  unroll_xe for (i = 0u; i < 2u; ++i) {
+    if (i != 0u) {
+      // Four RGBA32Float texels per row, 16 bytes per texel.
+      block_offset_host += 64u;
+      block_offset_guest += XeTextureLoadLocalXAddressXor(1u, 4u,
+                                                          load_info.is_tiled);
+    }
+    uint4_xe block = XeEndianSwap32(
+        byte_buffer_align16_load16_xe(xe_texture_load_source,
+                                      block_offset_guest),
+        load_info.endian_32);
+    uint2_xe bgr_end_8in10 = XeDXTColorEndpointsToBGR8In10(block.z);
+    uint bgr_weights = XeDXTHighColorWeights(block.w);
+    uint4_xe colors = XeDXTOpaqueRowToRGB8(bgr_end_8in10, bgr_weights);
+    uint4_xe alpha = (block.xxxx >> uint4_xe(0u, 4u, 8u, 12u)) & 15u;
+    uint4_xe texel;
+    XeDXT3SNormTexel(colors.x, alpha.x, texel);
+    byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host,
+                                   texel);
+    XeDXT3SNormTexel(colors.y, alpha.y, texel);
+    byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host + 16u,
+                                   texel);
+    XeDXT3SNormTexel(colors.z, alpha.z, texel);
+    byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host + 32u,
+                                   texel);
+    XeDXT3SNormTexel(colors.w, alpha.w, texel);
+    byte_buffer_align16_store16_xe(xe_texture_load_dest, block_offset_host + 48u,
+                                   texel);
+    dont_flatten_xe if (texel_index_host.y + 1u < load_info.height_texels) {
+      uint row_offset = block_offset_host + load_info.host_pitch;
+      colors = XeDXTOpaqueRowToRGB8(bgr_end_8in10, bgr_weights >> 8u);
+      alpha = (block.xxxx >> uint4_xe(16u, 20u, 24u, 28u)) & 15u;
+      XeDXT3SNormTexel(colors.x, alpha.x, texel);
+      byte_buffer_align16_store16_xe(xe_texture_load_dest, row_offset, texel);
+      XeDXT3SNormTexel(colors.y, alpha.y, texel);
+      byte_buffer_align16_store16_xe(xe_texture_load_dest, row_offset + 16u,
+                                     texel);
+      XeDXT3SNormTexel(colors.z, alpha.z, texel);
+      byte_buffer_align16_store16_xe(xe_texture_load_dest, row_offset + 32u,
+                                     texel);
+      XeDXT3SNormTexel(colors.w, alpha.w, texel);
+      byte_buffer_align16_store16_xe(xe_texture_load_dest, row_offset + 48u,
+                                     texel);
+      dont_flatten_xe if (texel_index_host.y + 2u < load_info.height_texels) {
+        row_offset += load_info.host_pitch;
+        colors = XeDXTOpaqueRowToRGB8(bgr_end_8in10, bgr_weights >> 16u);
+        alpha = (block.yyyy >> uint4_xe(0u, 4u, 8u, 12u)) & 15u;
+        XeDXT3SNormTexel(colors.x, alpha.x, texel);
+        byte_buffer_align16_store16_xe(xe_texture_load_dest, row_offset, texel);
+        XeDXT3SNormTexel(colors.y, alpha.y, texel);
+        byte_buffer_align16_store16_xe(xe_texture_load_dest, row_offset + 16u,
+                                       texel);
+        XeDXT3SNormTexel(colors.z, alpha.z, texel);
+        byte_buffer_align16_store16_xe(xe_texture_load_dest, row_offset + 32u,
+                                       texel);
+        XeDXT3SNormTexel(colors.w, alpha.w, texel);
+        byte_buffer_align16_store16_xe(xe_texture_load_dest, row_offset + 48u,
+                                       texel);
+        dont_flatten_xe if (texel_index_host.y + 3u < load_info.height_texels) {
+          row_offset += load_info.host_pitch;
+          colors = XeDXTOpaqueRowToRGB8(bgr_end_8in10, bgr_weights >> 24u);
+          alpha = (block.yyyy >> uint4_xe(16u, 20u, 24u, 28u)) & 15u;
+          XeDXT3SNormTexel(colors.x, alpha.x, texel);
+          byte_buffer_align16_store16_xe(xe_texture_load_dest, row_offset,
+                                         texel);
+          XeDXT3SNormTexel(colors.y, alpha.y, texel);
+          byte_buffer_align16_store16_xe(xe_texture_load_dest,
+                                         row_offset + 16u, texel);
+          XeDXT3SNormTexel(colors.z, alpha.z, texel);
+          byte_buffer_align16_store16_xe(xe_texture_load_dest,
+                                         row_offset + 32u, texel);
+          XeDXT3SNormTexel(colors.w, alpha.w, texel);
+          byte_buffer_align16_store16_xe(xe_texture_load_dest,
+                                         row_offset + 48u, texel);
+        }
+      }
+    }
+  }
+}
+entry_code_end_compute_xe

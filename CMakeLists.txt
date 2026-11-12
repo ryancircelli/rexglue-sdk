@@ -332,3 +332,8 @@ else()
         endif()
     endforeach()
 endif()
+
+option(REXGLUE_BUILD_GPUTEST "Build offline GPU trace replay tools" OFF)
+if(REXGLUE_BUILD_GPUTEST)
+  add_subdirectory(tools/gputest/replay)
+endif()

@@ -17,8 +17,7 @@ struct Vertex {
 };
 
 // Edge factors in D3D order (Ueq0, Veq0, Ueq1, Veq1), then inside U, V.
-void TessellateQuadFractionalEven(const float factors[6],
-                                  std::vector<Vertex>& vertices_out,
+void TessellateQuadFractionalEven(const float factors[6], std::vector<Vertex>& vertices_out,
                                   std::vector<uint32_t>& indices_out);
 
 }  // namespace rex::graphics::metal::ref_tess

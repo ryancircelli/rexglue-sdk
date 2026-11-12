@@ -28,8 +28,7 @@ class MetalPrimitiveProcessor : public PrimitiveProcessor {
  public:
   MetalPrimitiveProcessor(MetalCommandProcessor& command_processor,
                           const RegisterFile& register_file, rex::memory::Memory& memory,
-                          TraceWriter& trace_writer,
-                          SharedMemory& shared_memory);
+                          TraceWriter& trace_writer, SharedMemory& shared_memory);
   ~MetalPrimitiveProcessor();
 
   bool Initialize();
@@ -39,20 +38,19 @@ class MetalPrimitiveProcessor : public PrimitiveProcessor {
   void EndFrame();
 
   MTL::Buffer* GetBuiltinIndexBuffer() const { return builtin_index_buffer_; }
-  MTL::Buffer* GetConvertedIndexBuffer(size_t handle,
-                                       uint64_t& offset_bytes_out) const;
+  MTL::Buffer* GetConvertedIndexBuffer(size_t handle, uint64_t& offset_bytes_out) const;
 
  protected:
-  bool InitializeBuiltinIndexBuffer(
-      size_t size_bytes, std::function<void(void*)> fill_callback) override;
+  bool InitializeBuiltinIndexBuffer(size_t size_bytes,
+                                    std::function<void(void*)> fill_callback) override;
 
-  void* RequestHostConvertedIndexBufferForCurrentFrame(
-      xenos::IndexFormat format, uint32_t index_count, bool coalign_for_simd,
-      uint32_t coalignment_original_address,
-      size_t& backend_handle_out) override;
-  bool RequestGuestIndexSharedMemoryRange(
-      uint32_t guest_index_base, uint32_t guest_index_buffer_needed_bytes,
-      ProcessedIndexBufferType index_buffer_type) override;
+  void* RequestHostConvertedIndexBufferForCurrentFrame(xenos::IndexFormat format,
+                                                       uint32_t index_count, bool coalign_for_simd,
+                                                       uint32_t coalignment_original_address,
+                                                       size_t& backend_handle_out) override;
+  bool RequestGuestIndexSharedMemoryRange(uint32_t guest_index_base,
+                                          uint32_t guest_index_buffer_needed_bytes,
+                                          ProcessedIndexBufferType index_buffer_type) override;
 
  private:
   MetalCommandProcessor& command_processor_;
@@ -71,7 +69,7 @@ class MetalPrimitiveProcessor : public PrimitiveProcessor {
 };
 
 }  // namespace metal
-}  // namespace gpu
-}  // namespace xe
+}  // namespace graphics
+}  // namespace rex
 
 #endif  // XENIA_GPU_METAL_METAL_PRIMITIVE_PROCESSOR_H_

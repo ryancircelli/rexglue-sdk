@@ -1,11 +1,13 @@
 #pragma once
-// [xfer-prewarm] Default EDRAM ownership-transfer pipeline keys (docs/frame-pacing-20261012.md), merged with the
-// shader cache's own <title>.xfer-keys.txt at startup so a first session prewarms too. Each line describes one of
-// the backend's own transfer shader variants (transfer mode, MSAA counts, Xenos render-target format enums, colour
-// attachment index, native stencil flag, Metal pixel formats, integer output): no addresses or game data.
-// Regenerate: copy the lines of a cache's 4D5307F1.xfer-keys.txt after sessions at 1x, 2x and 3x (header excluded).
-// 2026-10-13: +33 keys (134) from the union of every recorded key file (dev sessions, benchmark and live caches);
-// on a cold first launch they were still built on the draw path ([xfer-prewarm] draw-path build lines).
+// [xfer-prewarm] Default EDRAM ownership-transfer pipeline keys (docs/frame-pacing-20261012.md),
+// merged with the shader cache's own <title>.xfer-keys.txt at startup so a first session prewarms
+// too. Each line describes one of the backend's own transfer shader variants (transfer mode, MSAA
+// counts, Xenos render-target format enums, colour attachment index, native stencil flag, Metal
+// pixel formats, integer output): no addresses or game data. Regenerate: copy the lines of a
+// cache's 4D5307F1.xfer-keys.txt after sessions at 1x, 2x and 3x (header excluded). 2026-10-13: +33
+// keys (134) from the union of every recorded key file (dev sessions, benchmark and live caches);
+// on a cold first launch they were still built on the draw path ([xfer-prewarm] draw-path build
+// lines).
 namespace rex::graphics::metal {
 inline constexpr char kXferKeysDefault[] = R"KEYS(
 0 0 2 0 2 2 0 0 0 90 0 0 0 260 260 0

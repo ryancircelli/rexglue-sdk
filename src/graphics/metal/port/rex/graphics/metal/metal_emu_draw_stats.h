@@ -36,9 +36,8 @@ enum Kind : uint32_t {
 };
 
 inline const char* KindName(uint32_t k) {
-  static const char* names[] = {"geom-point", "geom-rect", "geom-quad",
-                                "tess-discrete", "tess-continuous",
-                                "tess-adaptive"};
+  static const char* names[] = {"geom-point",    "geom-rect",       "geom-quad",
+                                "tess-discrete", "tess-continuous", "tess-adaptive"};
   return k < kKindCount ? names[k] : "?";
 }
 
@@ -68,8 +67,8 @@ inline double EvenSegments(float f) {
 
 struct KindAcc {
   uint64_t draws = 0;
-  uint64_t items = 0;  // guest vertices (geometry) or patches (tessellation)
-  double tris = 0.0;   // tessellation estimate
+  uint64_t items = 0;       // guest vertices (geometry) or patches (tessellation)
+  double tris = 0.0;        // tessellation estimate
   double factor_sum = 0.0;  // sum of effective edge factors
   uint64_t factor_n = 0;
   float factor_min = 1e30f;
@@ -92,8 +91,7 @@ class Stats {
   }
 
   // Call once per issued emulated draw.
-  void NoteGeometry(uint64_t frame, uint32_t kind, uint64_t vs_hash,
-                    uint32_t guest_vertices) {
+  void NoteGeometry(uint64_t frame, uint32_t kind, uint64_t vs_hash, uint32_t guest_vertices) {
     Frame(frame);
     KindAcc& a = acc_[kind];
     ++a.draws;
@@ -106,9 +104,8 @@ class Stats {
 
   // factors: 4 effective edge factors per patch (adaptive), or empty with
   // uniform_factor for the uniform modes.
-  void NoteTessellation(uint64_t frame, uint32_t kind, uint64_t vs_hash,
-                        uint32_t patches, const float* factors,
-                        float uniform_factor) {
+  void NoteTessellation(uint64_t frame, uint32_t kind, uint64_t vs_hash, uint32_t patches,
+                        const float* factors, float uniform_factor) {
     Frame(frame);
     KindAcc& a = acc_[kind];
     VsAcc& v = vs_[vs_hash];
@@ -164,8 +161,8 @@ class Stats {
         continue;
       }
       if (k < kTessDiscrete) {
-        REXLOG_INFO("[emu-stats] {} frames: {} {:.1f} draws/frame, {:.0f} vertices/frame",
-                    frames_, KindName(k), a.draws / n, a.items / n);
+        REXLOG_INFO("[emu-stats] {} frames: {} {:.1f} draws/frame, {:.0f} vertices/frame", frames_,
+                    KindName(k), a.draws / n, a.items / n);
         continue;
       }
       std::string hist;
@@ -179,8 +176,8 @@ class Stats {
           "[emu-stats] {} frames: {} {:.1f} draws/frame, {:.0f} patches/frame, "
           "~{:.0f} tris/frame; edge factor mean {:.2f} min {:.2f} max {:.2f};{}",
           frames_, KindName(k), a.draws / n, a.items / n, a.tris / n,
-          a.factor_n ? a.factor_sum / double(a.factor_n) : 0.0,
-          a.factor_n ? a.factor_min : 0.0f, a.factor_max, hist);
+          a.factor_n ? a.factor_sum / double(a.factor_n) : 0.0, a.factor_n ? a.factor_min : 0.0f,
+          a.factor_max, hist);
     }
     std::vector<std::pair<uint64_t, VsAcc>> top(vs_.begin(), vs_.end());
     std::sort(top.begin(), top.end(), [](const auto& x, const auto& y) {

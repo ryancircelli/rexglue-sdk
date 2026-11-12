@@ -13,16 +13,20 @@ namespace rex {
 using global_unique_lock_type = std::unique_lock<std::recursive_mutex>;
 class global_critical_region : public thread::global_critical_region {
  public:
- global_unique_lock_type Acquire() const { return AcquireDirect(); }
+  global_unique_lock_type Acquire() const { return AcquireDirect(); }
 };
 namespace hash {
-template<class T> using XXHasher = rex::XXHasher<T>;
-template<class T> using IdentityHasher = rex::IdentityHasher<T>;
-}
+template <class T>
+using XXHasher = rex::XXHasher<T>;
+template <class T>
+using IdentityHasher = rex::IdentityHasher<T>;
+}  // namespace hash
 // Same ARM64 implementation as XeniOS memory.cc.
 namespace memory {
-inline void vastcpy(uint8_t* dest, uint8_t* src, uint32_t size) { std::memcpy(dest, src, size); }
+inline void vastcpy(uint8_t* dest, uint8_t* src, uint32_t size) {
+  std::memcpy(dest, src, size);
 }
+}  // namespace memory
 template <size_t sz>
 class FixedVMemVector {
   static_assert((sz & 65535) == 0,
@@ -34,9 +38,8 @@ class FixedVMemVector {
 
  public:
   FixedVMemVector()
-      : data_((uint8_t*)memory::AllocFixed(
-            nullptr, sz, memory::AllocationType::kReserveCommit,
-            memory::PageAccess::kReadWrite)),
+      : data_((uint8_t*)memory::AllocFixed(nullptr, sz, memory::AllocationType::kReserveCommit,
+                                           memory::PageAccess::kReadWrite)),
         nbytes_(0) {}
   ~FixedVMemVector() {
     if (data_) {
@@ -107,22 +110,34 @@ namespace swcache {
 #if XE_COMPILER_HAS_GNU_EXTENSIONS == 1
 
 XE_FORCEINLINE
-static void PrefetchW(const void* addr) { __builtin_prefetch(addr, 1, 0); }
+static void PrefetchW(const void* addr) {
+  __builtin_prefetch(addr, 1, 0);
+}
 XE_FORCEINLINE
 
-static void PrefetchNTA(const void* addr) { __builtin_prefetch(addr, 0, 0); }
+static void PrefetchNTA(const void* addr) {
+  __builtin_prefetch(addr, 0, 0);
+}
 XE_FORCEINLINE
 
-static void PrefetchL3(const void* addr) { __builtin_prefetch(addr, 0, 1); }
+static void PrefetchL3(const void* addr) {
+  __builtin_prefetch(addr, 0, 1);
+}
 XE_FORCEINLINE
 
-static void PrefetchL2(const void* addr) { __builtin_prefetch(addr, 0, 2); }
+static void PrefetchL2(const void* addr) {
+  __builtin_prefetch(addr, 0, 2);
+}
 XE_FORCEINLINE
 
-static void PrefetchL1(const void* addr) { __builtin_prefetch(addr, 0, 3); }
+static void PrefetchL1(const void* addr) {
+  __builtin_prefetch(addr, 0, 3);
+}
 #elif XE_ARCH_AMD64 == 1 && XE_COMPILER_MSVC == 1
 XE_FORCEINLINE
-static void PrefetchW(const void* addr) { _m_prefetchw(addr); }
+static void PrefetchW(const void* addr) {
+  _m_prefetchw(addr);
+}
 
 XE_FORCEINLINE
 static void PrefetchNTA(const void* addr) {
@@ -237,8 +252,7 @@ union alignas(XE_HOST_CACHE_LINE_SIZE) CacheLine {
   float floats[XE_HOST_CACHE_LINE_SIZE / sizeof(float)];
 };
 XE_FORCEINLINE
-static void WriteLineNT(CacheLine* XE_RESTRICT destination,
-                        const CacheLine* XE_RESTRICT source) {
+static void WriteLineNT(CacheLine* XE_RESTRICT destination, const CacheLine* XE_RESTRICT source) {
   assert_true((reinterpret_cast<uintptr_t>(destination) & 63ULL) == 0);
   __m256 low = _mm256_loadu_ps(&source->floats[0]);
   __m256 high = _mm256_loadu_ps(&source->floats[8]);
@@ -247,8 +261,7 @@ static void WriteLineNT(CacheLine* XE_RESTRICT destination,
 }
 
 XE_FORCEINLINE
-static void ReadLineNT(CacheLine* XE_RESTRICT destination,
-                       const CacheLine* XE_RESTRICT source) {
+static void ReadLineNT(CacheLine* XE_RESTRICT destination, const CacheLine* XE_RESTRICT source) {
   assert_true((reinterpret_cast<uintptr_t>(source) & 63ULL) == 0);
 
   __m128i first = _mm_stream_load_si128(&source->xmms[0]);
@@ -262,8 +275,7 @@ static void ReadLineNT(CacheLine* XE_RESTRICT destination,
   destination->xmms[3] = fourth;
 }
 XE_FORCEINLINE
-static void ReadLine(CacheLine* XE_RESTRICT destination,
-                     const CacheLine* XE_RESTRICT source) {
+static void ReadLine(CacheLine* XE_RESTRICT destination, const CacheLine* XE_RESTRICT source) {
   assert_true((reinterpret_cast<uintptr_t>(source) & 63ULL) == 0);
   __m256 low = _mm256_loadu_ps(&source->floats[0]);
   __m256 high = _mm256_loadu_ps(&source->floats[8]);
@@ -271,8 +283,7 @@ static void ReadLine(CacheLine* XE_RESTRICT destination,
   _mm256_storeu_ps(&destination->floats[8], high);
 }
 XE_FORCEINLINE
-static void WriteLine(CacheLine* XE_RESTRICT destination,
-                      const CacheLine* XE_RESTRICT source) {
+static void WriteLine(CacheLine* XE_RESTRICT destination, const CacheLine* XE_RESTRICT source) {
   assert_true((reinterpret_cast<uintptr_t>(destination) & 63ULL) == 0);
   __m256 low = _mm256_loadu_ps(&source->floats[0]);
   __m256 high = _mm256_loadu_ps(&source->floats[8]);
@@ -281,11 +292,17 @@ static void WriteLine(CacheLine* XE_RESTRICT destination,
 }
 
 XE_FORCEINLINE
-static void WriteFence() { _mm_sfence(); }
+static void WriteFence() {
+  _mm_sfence();
+}
 XE_FORCEINLINE
-static void ReadFence() { _mm_lfence(); }
+static void ReadFence() {
+  _mm_lfence();
+}
 XE_FORCEINLINE
-static void ReadWriteFence() { _mm_mfence(); }
+static void ReadWriteFence() {
+  _mm_mfence();
+}
 
 #else
 union alignas(XE_HOST_CACHE_LINE_SIZE) CacheLine {
@@ -326,8 +343,7 @@ union IDivExtraInfo {
   } info;
 };
 // returns magicnum multiplier
-static constexpr uint32_t PregenerateUint32Div(uint32_t _denom,
-                                               uint32_t& out_extra) {
+static constexpr uint32_t PregenerateUint32Div(uint32_t _denom, uint32_t& out_extra) {
   IDivExtraInfo extra{};
 
   uint32_t d = _denom;
@@ -377,14 +393,13 @@ static constexpr uint32_t PregenerateUint32Div(uint32_t _denom,
   return static_cast<uint64_t>(q2 + 1);
 }
 
-static constexpr uint32_t ApplyUint32Div(uint32_t num, uint32_t mul,
-                                         uint32_t extradata) {
+static constexpr uint32_t ApplyUint32Div(uint32_t num, uint32_t mul, uint32_t extradata) {
   IDivExtraInfo extra{};
 
   extra.value_ = extradata;
 
-  uint32_t result = static_cast<uint32_t>(
-      (static_cast<uint64_t>(num) * static_cast<uint64_t>(mul)) >> 32);
+  uint32_t result =
+      static_cast<uint32_t>((static_cast<uint64_t>(num) * static_cast<uint64_t>(mul)) >> 32);
   if (extra.info.add_) {
     uint32_t addend = result + num;
     addend = ((addend < result ? 0x80000000 : 0) | addend);
@@ -393,8 +408,7 @@ static constexpr uint32_t ApplyUint32Div(uint32_t num, uint32_t mul,
   return result >> extra.info.shift_;
 }
 
-static constexpr uint32_t ApplyUint32UMod(uint32_t num, uint32_t mul,
-                                          uint32_t extradata,
+static constexpr uint32_t ApplyUint32UMod(uint32_t num, uint32_t mul, uint32_t extradata,
                                           uint32_t original) {
   uint32_t dived = ApplyUint32Div(num, mul, extradata);
   unsigned result = num - (dived * original);
@@ -430,7 +444,7 @@ struct MagicDiv {
   }
 };
 }  // namespace divisors
-}
+}  // namespace rex
 
 namespace rex {
 template <typename T>
@@ -445,13 +459,19 @@ inline T roundToNearestOrderOfMagnitude(T value) {
   return static_cast<T>(rounded);
 }
 
-}
+}  // namespace rex
 
 // XeniOS non-x86 math helpers.
 namespace rex {
-static float ArchMin(float x, float y) { return std::min<float>(x, y); }
-static float ArchMax(float x, float y) { return std::max<float>(x, y); }
-static float ArchReciprocal(float den) { return 1.0f / den; }
+static float ArchMin(float x, float y) {
+  return std::min<float>(x, y);
+}
+static float ArchMax(float x, float y) {
+  return std::max<float>(x, y);
+}
+static float ArchReciprocal(float den) {
+  return 1.0f / den;
+}
 using ArchFloatMask = unsigned;
 
 XE_FORCEINLINE
@@ -475,8 +495,9 @@ static ArchFloatMask ArchANDFloatMask(ArchFloatMask x, ArchFloatMask y) {
 constexpr ArchFloatMask floatmask_zero = 0;
 
 XE_FORCEINLINE
-static uint32_t ArchFloatMaskSignbit(ArchFloatMask x) { return x >> 31; }
-
+static uint32_t ArchFloatMaskSignbit(ArchFloatMask x) {
+  return x >> 31;
+}
 
 XE_FORCEINLINE
 static float RefineReciprocal(float initial, float den) {
@@ -490,4 +511,4 @@ static float ArchReciprocalRefined(float den) {
   return RefineReciprocal(ArchReciprocal(den), den);
 }
 
-}
+}  // namespace rex

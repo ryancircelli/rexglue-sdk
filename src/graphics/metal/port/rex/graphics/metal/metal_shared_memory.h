@@ -36,14 +36,12 @@ class MetalCommandProcessor;
 // rows by FABLE2_GPU_TIME_TRACE=1 at each guest swap (GPU Commands thread).
 struct UploadTraceCounters {
   // Invalid pages uploaded, by last reader (UploadRouteInfo categories).
-  uint32_t pg_current = 0, pg_inflight = 0, pg_completed = 0,
-           pg_standalone = 0;
+  uint32_t pg_current = 0, pg_inflight = 0, pg_completed = 0, pg_standalone = 0;
   // Render passes ended by a staged upload, by the deciding category: a page
   // the current command buffer read (WAR), a standalone command buffer in
   // flight, only committed command buffers (avoidable), or the same but the
   // pre-commit route was not allowed at that point.
-  uint32_t brk_current = 0, brk_standalone = 0, brk_inflight = 0,
-           brk_guard = 0;
+  uint32_t brk_current = 0, brk_standalone = 0, brk_inflight = 0, brk_guard = 0;
   // Pre-commit command buffers and pages sent through them.
   uint32_t precommit_cbs = 0, precommit_pages = 0;
   // [texture-precommit] texture-load flushes and loads (tr_n_tex_*).
@@ -54,15 +52,12 @@ struct UploadTraceCounters {
   // resident source pages touched by the open (or a standalone) command
   // buffer, guest KB, size (<=16 KB / >256 KB) and eligibility; nopass: loads
   // in flushes without an open render pass; pre: loads sent to pre-commit.
-  uint32_t tex_brk = 0, tex_brk_elig = 0, tex_ld = 0, tex_ld_cpu = 0,
-           tex_ld_res = 0, tex_ld_scaled = 0, tex_ld_first = 0,
-           tex_ld_samp_cur = 0, tex_ld_res_cur = 0, tex_ld_kb = 0,
-           tex_ld_small = 0, tex_ld_big = 0, tex_ld_elig = 0,
-           tex_ld_nopass = 0, tex_pre_flush = 0, tex_pre_ld = 0,
-           tex_pre_fallback = 0, tex_ld_exec = 0, tex_brk_blk_samp = 0,
-           tex_brk_blk_res = 0, tex_brk_blk_other = 0, tex_ld_res_gpuw = 0,
-           tex_ld_res_copy = 0, tex_ld_res_sa = 0, tex_ld_res_pend = 0,
-           tex_ld_res_inv = 0;
+  uint32_t tex_brk = 0, tex_brk_elig = 0, tex_ld = 0, tex_ld_cpu = 0, tex_ld_res = 0,
+           tex_ld_scaled = 0, tex_ld_first = 0, tex_ld_samp_cur = 0, tex_ld_res_cur = 0,
+           tex_ld_kb = 0, tex_ld_small = 0, tex_ld_big = 0, tex_ld_elig = 0, tex_ld_nopass = 0,
+           tex_pre_flush = 0, tex_pre_ld = 0, tex_pre_fallback = 0, tex_ld_exec = 0,
+           tex_brk_blk_samp = 0, tex_brk_blk_res = 0, tex_brk_blk_other = 0, tex_ld_res_gpuw = 0,
+           tex_ld_res_copy = 0, tex_ld_res_sa = 0, tex_ld_res_pend = 0, tex_ld_res_inv = 0;
   // [tex-rename] sampled_current breaks whose other loads were all eligible.
   uint32_t tex_brk_samp_only = 0;
   // [tex-rename] (tr_n_trn_*): backings renamed, of those from the pool;
@@ -73,22 +68,21 @@ struct UploadTraceCounters {
   // copies after a load that did not write the new backing; orphans settled;
   // renamed loads in flushes that still ended the pass; pool / in-flight KB
   // (gauges at the frame end).
-  uint32_t trn_rename = 0, trn_pool_hit = 0, trn_fb_partial = 0,
-           trn_fb_keep = 0, trn_fb_queued = 0, trn_fb_queued_load = 0, trn_fb_nopass = 0, trn_q_only = 0, trn_noop_stale = 0, trn_noop_keep = 0, nx_same = 0, nx_same_kb = 0, nx_same_renamed = 0, nx_changed = 0, trn_fb_other = 0,
-           trn_fb_mem = 0, trn_fb_kind = 0, trn_share = 0, trn_settle = 0,
-           trn_orphan = 0, trn_wasted = 0, trn_pool_kb = 0,
-           trn_retired_kb = 0;
+  uint32_t trn_rename = 0, trn_pool_hit = 0, trn_fb_partial = 0, trn_fb_keep = 0, trn_fb_queued = 0,
+           trn_fb_queued_load = 0, trn_fb_nopass = 0, trn_q_only = 0, trn_noop_stale = 0,
+           trn_noop_keep = 0, nx_same = 0, nx_same_kb = 0, nx_same_renamed = 0, nx_changed = 0,
+           trn_fb_other = 0, trn_fb_mem = 0, trn_fb_kind = 0, trn_share = 0, trn_settle = 0,
+           trn_orphan = 0, trn_wasted = 0, trn_pool_kb = 0, trn_retired_kb = 0;
   // [pass-merge] pre-commit texture flushes that needed a shared-memory
   // upload: kept on the pre-commit route via CPU direct writes; fallbacks
   // with pages read by the open command buffer / in flight / standalone.
-  uint32_t tex_pre_direct = 0, tex_fb_cur = 0, tex_fb_inflight = 0,
-           tex_fb_sa = 0, tex_pre_staged = 0, dc_dst_merged = 0;
+  uint32_t tex_pre_direct = 0, tex_fb_cur = 0, tex_fb_inflight = 0, tex_fb_sa = 0,
+           tex_pre_staged = 0, dc_dst_merged = 0;
   // [res-scale] scaled-resolve loads in breaking flushes: eligible, blocked
   // by a scaled write (resolve / buffer grow) in the open command buffer, by
   // a scaled range that is not resident yet (the load would grow the buffer),
   // or by invalid shared-memory pages (the load would upload them first).
-  uint32_t tex_ld_scl_elig = 0, tex_ld_scl_open = 0, tex_ld_scl_nores = 0,
-           tex_ld_scl_inv = 0;
+  uint32_t tex_ld_scl_elig = 0, tex_ld_scl_open = 0, tex_ld_scl_nores = 0, tex_ld_scl_inv = 0;
   // [res-scale] copy resolves (tr_n_rsv_*): all, at scale > 1, scaled-resolve
   // buffer grows (old ranges copied); all scaled-resolve texture loads.
   uint32_t rsv_copy = 0, rsv_scaled = 0, rsv_grow = 0, tex_ld_scl_all = 0;
@@ -97,8 +91,8 @@ struct UploadTraceCounters {
   // key: same format and MSAA (base or pitch change), other colour format,
   // colour <-> depth, MSAA change, with a host depth source. q / fb:
   // destinations queued into the draw pass / sent to a separate transfer pass.
-  uint32_t xfer_n = 0, xfer_rt = 0, xfer_same = 0, xfer_fmt = 0, xfer_cd = 0,
-           xfer_msaa = 0, xfer_hostdepth = 0, xfer_q = 0, xfer_fb = 0;
+  uint32_t xfer_n = 0, xfer_rt = 0, xfer_same = 0, xfer_fmt = 0, xfer_cd = 0, xfer_msaa = 0,
+           xfer_hostdepth = 0, xfer_q = 0, xfer_fb = 0;
   // [rt-store-audit] draws with stencil test / stencil write enabled, draws
   // with a depth-stencil target bound.
   uint32_t draw_stencil = 0, draw_ds = 0;
@@ -112,14 +106,14 @@ struct UploadTraceCounters {
   // an eligible and a full-scale target (would need mixed-scale transfers);
   // rsv / rsv_mixed: copy resolves whose source tiles are all / partly owned by
   // eligible targets.
-  uint32_t eff_draw = 0, eff_draw_depth = 0, eff_xfer_native = 0,
-           eff_xfer_mixed = 0, eff_rsv = 0, eff_rsv_mixed = 0;
+  uint32_t eff_draw = 0, eff_draw_depth = 0, eff_xfer_native = 0, eff_xfer_mixed = 0, eff_rsv = 0,
+           eff_rsv_mixed = 0;
   // [native-scale] transfers encoded between different scales, resolves
   // done at native scale, mixed resolves unified by ownership transfers,
   // draws into native-scale shadow-map depth targets, host-depth sources
   // dropped from mixed-scale depth transfers.
-  uint32_t eff_xfer_scaled = 0, eff_rsv_native = 0, eff_rsv_unified = 0,
-           sh_draw = 0, sh_hostdepth_drop = 0, ts_draw = 0;
+  uint32_t eff_xfer_scaled = 0, eff_rsv_native = 0, eff_rsv_unified = 0, sh_draw = 0,
+           sh_hostdepth_drop = 0, ts_draw = 0;
   // [cb-end] main command buffers ended, by cause (tr_n_cbend_*): PM4 primary buffer
   // end, worker idle (PrepareForWait), shared-memory read dependency, explicit wait.
   uint32_t cbend_pbe = 0, cbend_idle = 0, cbend_dep = 0, cbend_wait = 0;
@@ -129,26 +123,24 @@ struct UploadTraceCounters {
   // by them (touched rectangles x samples x bytes per sample; a Load counts
   // the rectangles, a Store counts them again); K1 self-depth destinations
   // moved into the draw pass (tr_n_tile_selfdepth).
-  uint32_t xfp_clear = 0, xfp_self = 0, xfp_other = 0, xfp_kb = 0,
-           xfp_clear_kb = 0, tile_selfdepth = 0;
+  uint32_t xfp_clear = 0, xfp_self = 0, xfp_other = 0, xfp_kb = 0, xfp_clear_kb = 0,
+           tile_selfdepth = 0;
   // [deferred-clears] resolve clears deferred (tr_n_dc_*): deferred, drawn
   // first inside the next draw pass that binds the target (merged), merged
   // clears covering the whole target (would have allowed loadAction=Clear),
   // flushed early as a separate pass by reason, touched-rect KB of separate
   // clear-pass load+store avoided by the merges.
-  uint32_t dc_deferred = 0, dc_merged = 0, dc_fullrect = 0, dc_fl_resolve = 0,
-           dc_fl_xfer = 0, dc_fl_reclear = 0, dc_fl_preflight = 0,
-           dc_fl_guard = 0, dc_fl_swap = 0, dc_fl_other = 0, dc_saved_kb = 0,
-           dc_requeue = 0;
+  uint32_t dc_deferred = 0, dc_merged = 0, dc_fullrect = 0, dc_fl_resolve = 0, dc_fl_xfer = 0,
+           dc_fl_reclear = 0, dc_fl_preflight = 0, dc_fl_guard = 0, dc_fl_swap = 0, dc_fl_other = 0,
+           dc_saved_kb = 0, dc_requeue = 0;
   // [alias-clear] (tr_n_ac_*): XDK alias clear quads done as EDRAM clears
   // (draws, surfaces), of those queued as deferred clears or drawn at once
   // (partly covered tiles of other owners); no-op draws skipped (nothing
   // bound, written or exported); candidates left as draws by reason: state
   // (blend, mask, shader, scissor...), value (not exactly representable),
   // owner (no other MSAA variant), rect (origin, alignment, pitch).
-  uint32_t ac_clear = 0, ac_surfaces = 0, ac_deferred = 0, ac_immediate = 0,
-           ac_noop = 0, ac_fb_state = 0, ac_fb_value = 0, ac_fb_owner = 0,
-           ac_fb_rect = 0, ac_cross_format = 0;
+  uint32_t ac_clear = 0, ac_surfaces = 0, ac_deferred = 0, ac_immediate = 0, ac_noop = 0,
+           ac_fb_state = 0, ac_fb_value = 0, ac_fb_owner = 0, ac_fb_rect = 0, ac_cross_format = 0;
   // [main-depth] (tr_n_md_*): depth words written into a unorm colour
   // variant, stencil-only alias clears, and the transfers those moved into the
   // same-format variant.
@@ -177,8 +169,8 @@ struct UploadTraceCounters {
   // pass, of those after a guest draw set rasterizer state in the same
   // encoder, and of those with an inherited non-default cull mode, fill mode,
   // depth bias or depth clip mode (measured before the reset).
-  uint32_t xq_inpass = 0, xq_reused = 0, xq_inh_cull = 0, xq_inh_fill = 0,
-           xq_inh_bias = 0, xq_inh_clip = 0;
+  uint32_t xq_inpass = 0, xq_reused = 0, xq_inh_cull = 0, xq_inh_fill = 0, xq_inh_bias = 0,
+           xq_inh_clip = 0;
   // [tex-blit] texture upload buffer->texture copies (tr_n_tex_blit_*): KB
   // copied, KB and count into resolution-scaled resolve textures.
   uint32_t tex_blit_kb = 0, tex_blit_scl_kb = 0, tex_blit_scl = 0;
@@ -211,8 +203,7 @@ struct UploadTraceCounters {
   // [tex-resolve] lazy-buffer census (FABLE2_LAZY_CENSUS=1), scaled KB:
   // candidate writes, overwritten unread, read by loads / morph readback,
   // all resolve writes.
-  uint32_t lz_cand_kb = 0, lz_dead_kb = 0, lz_read_kb = 0, lz_morph_kb = 0,
-           lz_all_kb = 0;
+  uint32_t lz_cand_kb = 0, lz_dead_kb = 0, lz_read_kb = 0, lz_morph_kb = 0, lz_all_kb = 0;
   // [tile-resolve] (tr_n_tres_*): colour copies done as a tile function in
   // the draw pass; draw passes offered (kept open); copies left on the compute
   // path by reason: precheck (growth, deferred clears, rt-shrink verify), shape
@@ -222,9 +213,8 @@ struct UploadTraceCounters {
   // in the pass, memexport into the destination), pso (tile pipeline not
   // built yet or failed), tile (Metal tile width not a multiple of the
   // pixels per thread).
-  uint32_t tres_tile = 0, tres_offer = 0, tres_fb_precheck = 0,
-           tres_fb_shape = 0, tres_fb_pass = 0, tres_fb_area = 0,
-           tres_fb_hazard = 0, tres_fb_pso = 0, tres_fb_tile = 0;
+  uint32_t tres_tile = 0, tres_offer = 0, tres_fb_precheck = 0, tres_fb_shape = 0, tres_fb_pass = 0,
+           tres_fb_area = 0, tres_fb_hazard = 0, tres_fb_pso = 0, tres_fb_tile = 0;
   // [tile-resolve extent] draw passes opened with a render area shorter than
   // their targets (shrunk), passes ended because a draw needed more rows
   // (grow), and tile resolves whose source rows lie outside a shrunk area
@@ -238,8 +228,7 @@ struct UploadTraceCounters {
   // draw of the pass that samples the texture is bounded below that level;
   // draws sampling a candidate texture that were bounded (with a view
   // limited to fewer levels than the texture has: view) or not.
-  uint32_t tres_miplod = 0, miplod_bounded = 0, miplod_view = 0,
-           miplod_unbounded = 0;
+  uint32_t tres_miplod = 0, miplod_bounded = 0, miplod_view = 0, miplod_unbounded = 0;
 };
 UploadTraceCounters& UploadTrace();
 
@@ -257,11 +246,9 @@ class MetalSharedMemory : public SharedMemory {
   const uint8_t* GetXboxRamBase() const {
     return static_cast<const uint8_t*>(memory().TranslatePhysical(0));
   }
-  void MarkGpuAccess(uint32_t start, uint32_t length,
-                     uint64_t submission_index);
+  void MarkGpuAccess(uint32_t start, uint32_t length, uint64_t submission_index);
   void TrackStandaloneGpuAccess(MTL::CommandBuffer* command_buffer,
-                                const std::pair<uint32_t, uint32_t>* ranges,
-                                uint32_t range_count);
+                                const std::pair<uint32_t, uint32_t>* ranges, uint32_t range_count);
   struct UploadRouteInfo {
     uint64_t upload_bytes = 0;
     uint64_t direct_bytes = 0;
@@ -290,8 +277,7 @@ class MetalSharedMemory : public SharedMemory {
                     bool staged_copy = false);
   // Trace-only diagnosis: pre-commit staged copies by submission (bit 32 of
   // RangeOpenWriteReasons; never used for routing).
-  void MarkPrecommitCopy(uint32_t start, uint32_t length,
-                         uint64_t submission_index);
+  void MarkPrecommitCopy(uint32_t start, uint32_t length, uint64_t submission_index);
   // [mip-lod] the GPU-visible bytes of a valid range that no GPU write,
   // staged copy or standalone command buffer still in flight can change
   // (shared storage); null otherwise.
@@ -302,8 +288,7 @@ class MetalSharedMemory : public SharedMemory {
   // Bits: 1 GPU write (resolve / memexport), 2 staged copy, 4 standalone,
   // 32 pre-commit copy for the open command buffer (diagnostic only).
   uint32_t RangeOpenWriteReasons(uint32_t start, uint32_t length);
-  UploadRouteInfo GetUploadRouteInfo(const SharedMemory::Range* ranges,
-                                     uint32_t range_count);
+  UploadRouteInfo GetUploadRouteInfo(const SharedMemory::Range* ranges, uint32_t range_count);
 
   // [upload-precommit] who last read a page (see UploadRouteInfo).
   enum class PageAccess : uint8_t {
@@ -345,8 +330,7 @@ class MetalSharedMemory : public SharedMemory {
   // FABLE2_SHMEM_VALID_FIRST (default on; CR-02): the direct-write upload
   // route marks a range valid before copying it, as the staged route does.
   static bool ShmemValidFirstEnabled();
-  void NoteMemexportReadback(uint32_t start, uint32_t length,
-                             uint64_t submission);
+  void NoteMemexportReadback(uint32_t start, uint32_t length, uint64_t submission);
   void ApplyCompletedMemexportReadbacks(uint64_t completed_submission);
   // [upload-precommit] trace-only check (FABLE2_UPLOAD_VERIFY=1): once the
   // submission of a staged copy (in-pass or pre-commit) has completed, the
@@ -382,8 +366,7 @@ class MetalSharedMemory : public SharedMemory {
   std::vector<PreservedExport> preserved_exports_;
   void ExpirePreservedExports(uint64_t now_us);
   // Caller holds standalone_gpu_access_mutex_.
-  PageAccess ClassifyPageAccessLocked(uint32_t page, uint64_t completed,
-                                      uint64_t committed,
+  PageAccess ClassifyPageAccessLocked(uint32_t page, uint64_t completed, uint64_t committed,
                                       uint64_t* last_access) const;
   MetalCommandProcessor& command_processor_;
   std::unique_ptr<MetalUploadBufferPool> upload_buffer_pool_;
@@ -399,8 +382,7 @@ class MetalSharedMemory : public SharedMemory {
     uint64_t submission = 0;
   };
   static constexpr uint32_t kMarkedGpuAccessCacheSize = 1024;
-  std::array<MarkedGpuAccessRange, kMarkedGpuAccessCacheSize>
-      marked_gpu_access_cache_{};
+  std::array<MarkedGpuAccessRange, kMarkedGpuAccessCacheSize> marked_gpu_access_cache_{};
   bool dedupe_gpu_access_ = true;
   std::vector<uint64_t> page_last_gpu_write_submission_;
   std::vector<uint64_t> page_last_staged_copy_submission_;
@@ -411,7 +393,7 @@ class MetalSharedMemory : public SharedMemory {
 };
 
 }  // namespace metal
-}  // namespace gpu
-}  // namespace xe
+}  // namespace graphics
+}  // namespace rex
 
 #endif

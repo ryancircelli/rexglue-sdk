@@ -80,8 +80,8 @@ PlainKey ComputePlainKey(const std::vector<uint8_t>& metallib);
 
 struct GuardEntry {
   uint32_t kind;
-  uint32_t index;  // dword index in the buffer
-  uint32_t value;  // already masked
+  uint32_t index;               // dword index in the buffer
+  uint32_t value;               // already masked
   uint32_t mask = 0xFFFFFFFFu;  // the bits that were baked / are compared
 };
 
@@ -123,15 +123,18 @@ struct Variant {
   bool Matches(const DrawPayloads& p) const {
     for (uint32_t k = 0; k < kKindCount; ++k) {
       const size_t n = index[k].size();
-      if (!n) continue;
+      if (!n)
+        continue;
       const uint32_t* d = p.data[k];
-      if (!d) return false;
+      if (!d)
+        return false;
       const uint32_t* idx = index[k].data();
       const uint32_t* val = value[k].data();
       const uint32_t* msk = mask[k].data();
       const uint32_t limit = p.dwords[k];
       for (size_t i = 0; i < n; ++i) {
-        if (idx[i] >= limit || (d[idx[i]] & msk[i]) != val[i]) return false;
+        if (idx[i] >= limit || (d[idx[i]] & msk[i]) != val[i])
+          return false;
       }
     }
     return true;
@@ -179,8 +182,7 @@ struct LearnRecord {
 
 // Called at shader-storage init with the title's cache folder: loads the learn
 // file (if any) and, in learn mode, remembers where to save it.
-void InitializeStorage(const std::filesystem::path& title_root,
-                       uint32_t title_id);
+void InitializeStorage(const std::filesystem::path& title_root, uint32_t title_id);
 // The learn data a variant of this plain library is made from, if any is
 // ready: the library's own converged record merged with the converged records
 // of the same shader (ucode + modification) at other resolution scales or
@@ -189,9 +191,8 @@ void InitializeStorage(const std::filesystem::path& title_root,
 // record only (never baked when it has none). Returns false when nothing
 // converged; `*blacklisted` when the shader was demoted too often.
 // Thread-safe.
-bool GetLearnRecord(const PlainKey& key, uint64_t ucode_hash,
-                    uint64_t modification, LearnRecord* out,
-                    bool* blacklisted);
+bool GetLearnRecord(const PlainKey& key, uint64_t ucode_hash, uint64_t modification,
+                    LearnRecord* out, bool* blacklisted);
 // Demotions recorded for this plain library (0 if none). Thread-safe.
 uint32_t Demotions(const PlainKey& key);
 // Whether this exact key has converged learn data of its own (not only
@@ -206,8 +207,8 @@ uint64_t LearnHash(const LearnRecord& record);
 
 // Learn mode, command-processor thread: note one draw of a translation.
 // `owner` identifies the translation (its address).
-void LearnNote(const void* owner, const PlainKey& key, uint64_t ucode_hash,
-               uint64_t modification, const DrawPayloads& p);
+void LearnNote(const void* owner, const PlainKey& key, uint64_t ucode_hash, uint64_t modification,
+               const DrawPayloads& p);
 // Saves the learn file (merged with what was loaded). Called periodically by
 // LearnNote and at shutdown (auto-learn: final synchronous save).
 void LearnSave();
@@ -235,11 +236,11 @@ struct AutoLearn {
   std::vector<uint32_t> pending_varying[kKindCount];
   bool demoted = false;
 };
-AutoLearn* NewAutoLearn(const PlainKey& key, uint64_t ucode_hash,
-                        uint64_t modification);
+AutoLearn* NewAutoLearn(const PlainKey& key, uint64_t ucode_hash, uint64_t modification);
 // Cheap per-draw check: true when this draw is to be sampled.
 inline bool AutoLearnWantsSample(AutoLearn& a, uint32_t every) {
-  if (a.state == AutoLearn::kDone) return false;
+  if (a.state == AutoLearn::kDone)
+    return false;
   return (a.counter++ % every) == 0;
 }
 uint32_t AutoLearnSampleEvery();
@@ -259,8 +260,7 @@ bool RecordDemotion(const PlainKey& key, const Variant& v);
 // Starts learning again for a demoted variant's translation (the miss bits
 // are applied at convergence; the learn file then makes the next session
 // regenerate). `existing` may be null.
-AutoLearn* AutoLearnAfterDemotion(AutoLearn* existing, const Variant& v,
-                                  const PlainKey& key);
+AutoLearn* AutoLearnAfterDemotion(AutoLearn* existing, const Variant& v, const PlainKey& key);
 
 // --- Bake --------------------------------------------------------------------
 // Replaces, in disassembled AIR text, what the shader computes from candidate
@@ -268,14 +268,12 @@ AutoLearn* AutoLearnAfterDemotion(AutoLearn* existing, const Variant& v,
 // constants; a load used otherwise is replaced whole when all its bits are
 // invariant. `baked` receives the dwords and bits actually used (the guard).
 // Returns false (text untouched) when nothing could be baked.
-bool BakeAir(std::string& ll, const std::vector<GuardEntry>& candidates,
-             bool bake_floats, std::vector<GuardEntry>* baked,
-             std::string* error);
+bool BakeAir(std::string& ll, const std::vector<GuardEntry>& candidates, bool bake_floats,
+             std::vector<GuardEntry>* baked, std::string* error);
 
 // --- Record payloads (artifact store) ------------------------------------------
 // Index record: which dwords the variant guards and what learn data made it.
-std::vector<uint8_t> SerializeIndex(uint64_t learn_hash,
-                                    const std::vector<GuardEntry>& entries);
+std::vector<uint8_t> SerializeIndex(uint64_t learn_hash, const std::vector<GuardEntry>& entries);
 bool ParseIndex(const std::vector<uint8_t>& bytes, uint64_t* learn_hash,
                 std::vector<GuardEntry>* entries);
 

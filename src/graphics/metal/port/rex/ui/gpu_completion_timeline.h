@@ -44,9 +44,7 @@ class GPUCompletionTimeline {
   // been made aware that a submission has been completed.
   virtual void UpdateCompletedSubmission() = 0;
 
-  uint64_t GetCompletedSubmissionFromLastUpdate() const {
-    return completed_submission_;
-  }
+  uint64_t GetCompletedSubmissionFromLastUpdate() const { return completed_submission_; }
 
   uint64_t UpdateAndGetCompletedSubmission() {
     UpdateCompletedSubmission();
@@ -62,12 +60,10 @@ class GPUCompletionTimeline {
     return UpdateAndGetCompletedSubmission() >= awaited_submission;
   }
 
-  bool AwaitMaxSubmissionsPendingAndUpdateCompleted(
-      const uint64_t max_submissions_pending) {
+  bool AwaitMaxSubmissionsPendingAndUpdateCompleted(const uint64_t max_submissions_pending) {
     assert_not_zero(max_submissions_pending);
     return AwaitSubmissionAndUpdateCompleted(
-        GetUpcomingSubmission() -
-        std::min(max_submissions_pending, GetUpcomingSubmission()));
+        GetUpcomingSubmission() - std::min(max_submissions_pending, GetUpcomingSubmission()));
   }
 
   bool AwaitAllSubmissions() {
@@ -97,6 +93,6 @@ class GPUCompletionTimeline {
 };
 
 }  // namespace ui
-}  // namespace xe
+}  // namespace rex
 
 #endif  // XENIA_UI_GPU_COMPLETION_TIMELINE_H_

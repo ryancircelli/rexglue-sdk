@@ -23,9 +23,8 @@ class PipelineFailureBackoff {
   // Schedule from the end of the failed attempt, including slow compilations.
   std::chrono::seconds RecordFailure(uint64_t key, Clock::time_point now) {
     auto& failure = failures_[key];
-    failure.delay = failure.delay.count()
-                        ? std::min(failure.delay * 2, std::chrono::seconds(30))
-                        : std::chrono::seconds(1);
+    failure.delay = failure.delay.count() ? std::min(failure.delay * 2, std::chrono::seconds(30))
+                                          : std::chrono::seconds(1);
     failure.retry_at = now + failure.delay;
     return failure.delay;
   }

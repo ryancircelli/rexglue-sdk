@@ -66,9 +66,8 @@ class MetalArtifactStore {
     ArtifactKind kind = ArtifactKind::kStageCompile;
 
     bool operator==(const ArtifactKey& other) const {
-      return primary_hash == other.primary_hash &&
-             modification == other.modification && stage == other.stage &&
-             kind == other.kind;
+      return primary_hash == other.primary_hash && modification == other.modification &&
+             stage == other.stage && kind == other.kind;
     }
   };
 
@@ -94,14 +93,10 @@ class MetalArtifactStore {
 
   static ArtifactKey MakeStageCompileKey(const MetalStageCompileKey& stage_key);
   static ArtifactKey MakeDxilBytecodeKey(const MetalDxilBytecodeKey& dxil_key);
-  bool LoadStageCompile(const MetalStageCompileKey& key,
-                        MetalStageCompileResult* out);
-  void StoreStageCompile(const MetalStageCompileKey& key,
-                         const MetalStageCompileResult& result);
-  bool LoadDxilBytecode(const MetalDxilBytecodeKey& key,
-                        std::vector<uint8_t>* out);
-  void StoreDxilBytecode(const MetalDxilBytecodeKey& key,
-                         const std::vector<uint8_t>& dxil_data);
+  bool LoadStageCompile(const MetalStageCompileKey& key, MetalStageCompileResult* out);
+  void StoreStageCompile(const MetalStageCompileKey& key, const MetalStageCompileResult& result);
+  bool LoadDxilBytecode(const MetalDxilBytecodeKey& key, std::vector<uint8_t>* out);
+  void StoreDxilBytecode(const MetalDxilBytecodeKey& key, const std::vector<uint8_t>& dxil_data);
 
   Stats GetStats() const;
 
@@ -114,8 +109,7 @@ class MetalArtifactStore {
 
   bool LoadIndex();
   bool ReadPayload(const RecordLocation& location, std::vector<uint8_t>* out);
-  void StorePayload(const ArtifactKey& key, const uint8_t* payload,
-                    size_t payload_size);
+  void StorePayload(const ArtifactKey& key, const uint8_t* payload, size_t payload_size);
 
   mutable std::mutex mutex_;
   bool initialized_ = false;
@@ -127,7 +121,7 @@ class MetalArtifactStore {
 extern std::unique_ptr<MetalArtifactStore> g_metal_artifact_store;
 
 }  // namespace metal
-}  // namespace gpu
-}  // namespace xe
+}  // namespace graphics
+}  // namespace rex
 
 #endif  // XENIA_GPU_METAL_METAL_SHADER_CACHE_H_

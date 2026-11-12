@@ -32,7 +32,7 @@ using rex::graphics::PipelineGeometryShader;
 const std::vector<uint32_t>& GetGeometryShader(GeometryShaderKey key);
 
 }  // namespace metal
-}  // namespace gpu
-}  // namespace xe
+}  // namespace graphics
+}  // namespace rex
 
 #endif  // XENIA_GPU_METAL_METAL_GEOMETRY_SHADER_H_

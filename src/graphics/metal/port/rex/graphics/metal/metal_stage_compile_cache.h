@@ -99,29 +99,24 @@ struct MetalStageCompileKey {
 
   bool operator==(const MetalStageCompileKey& other) const {
     return key_version == other.key_version && stage == other.stage &&
-           dxil_size == other.dxil_size &&
-           dxil_hash_low == other.dxil_hash_low &&
+           dxil_size == other.dxil_size && dxil_hash_low == other.dxil_hash_low &&
            dxil_hash_high == other.dxil_hash_high &&
            compatibility_flags == other.compatibility_flags &&
            validation_flags == other.validation_flags &&
            stage_in_generation_mode == other.stage_in_generation_mode &&
-           function_constant_resource_space ==
-               other.function_constant_resource_space &&
-           minimum_gpu_family == other.minimum_gpu_family &&
-           minimum_os == other.minimum_os &&
+           function_constant_resource_space == other.function_constant_resource_space &&
+           minimum_gpu_family == other.minimum_gpu_family && minimum_os == other.minimum_os &&
            minimum_os_version_hash == other.minimum_os_version_hash &&
            root_signature_abi_version == other.root_signature_abi_version &&
            root_signature_stage == other.root_signature_stage &&
-           root_signature_bindless_resources_used ==
-               other.root_signature_bindless_resources_used &&
+           root_signature_bindless_resources_used == other.root_signature_bindless_resources_used &&
            ignore_root_signature == other.ignore_root_signature &&
            ignore_debug_information == other.ignore_debug_information &&
            input_topology == other.input_topology &&
            geometry_or_tessellation_emulation_enabled ==
                other.geometry_or_tessellation_emulation_enabled &&
            stage_in_metallib_requested == other.stage_in_metallib_requested &&
-           reserved == other.reserved &&
-           input_layout_hash_low == other.input_layout_hash_low &&
+           reserved == other.reserved && input_layout_hash_low == other.input_layout_hash_low &&
            input_layout_hash_high == other.input_layout_hash_high;
   }
 };
@@ -132,8 +127,7 @@ struct MetalStageCompileKeyHasher {
 
 class MetalStageCompileCache {
  public:
-  using CompileFn =
-      std::function<std::shared_ptr<const MetalStageCompileResult>()>;
+  using CompileFn = std::function<std::shared_ptr<const MetalStageCompileResult>()>;
 
   MetalStageCompileCache() = default;
   ~MetalStageCompileCache() = default;
@@ -163,10 +157,8 @@ class MetalStageCompileCache {
   };
 
   static MetalStageCompileKey BuildKey(const MetalStageCompileRequest& request);
-  std::shared_ptr<const MetalStageCompileResult> LoadPersistent(
-      const MetalStageCompileKey& key);
-  void StorePersistent(const MetalStageCompileKey& key,
-                       const MetalStageCompileResult& result);
+  std::shared_ptr<const MetalStageCompileResult> LoadPersistent(const MetalStageCompileKey& key);
+  void StorePersistent(const MetalStageCompileKey& key, const MetalStageCompileResult& result);
   void AddOwnerCompileTime(uint64_t ms);
   void AddWaitTime(uint64_t ms);
 
@@ -192,7 +184,7 @@ class MetalStageCompileCache {
 };
 
 }  // namespace metal
-}  // namespace gpu
-}  // namespace xe
+}  // namespace graphics
+}  // namespace rex
 
 #endif  // XENIA_GPU_METAL_METAL_STAGE_COMPILE_CACHE_H_

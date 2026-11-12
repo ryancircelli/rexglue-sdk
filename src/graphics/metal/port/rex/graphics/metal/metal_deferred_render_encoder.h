@@ -79,28 +79,21 @@ class DeferredRenderEncoder {
   void setTriangleFillMode(MTL::TriangleFillMode mode);
   void setDepthBias(float bias, float slope, float clamp);
   void setDepthClipMode(MTL::DepthClipMode mode);
-  void setVisibilityResultMode(MTL::VisibilityResultMode mode,
-                               NS::UInteger offset);
-  void setTessellationFactorBuffer(const MTL::Buffer* buffer,
-                                   NS::UInteger offset, NS::UInteger stride);
+  void setVisibilityResultMode(MTL::VisibilityResultMode mode, NS::UInteger offset);
+  void setTessellationFactorBuffer(const MTL::Buffer* buffer, NS::UInteger offset,
+                                   NS::UInteger stride);
 
   // Buffers.
-  void setVertexBuffer(const MTL::Buffer* buffer, NS::UInteger offset,
-                       NS::UInteger index);
-  void setFragmentBuffer(const MTL::Buffer* buffer, NS::UInteger offset,
-                         NS::UInteger index);
-  void setObjectBuffer(const MTL::Buffer* buffer, NS::UInteger offset,
-                       NS::UInteger index);
-  void setMeshBuffer(const MTL::Buffer* buffer, NS::UInteger offset,
-                     NS::UInteger index);
+  void setVertexBuffer(const MTL::Buffer* buffer, NS::UInteger offset, NS::UInteger index);
+  void setFragmentBuffer(const MTL::Buffer* buffer, NS::UInteger offset, NS::UInteger index);
+  void setObjectBuffer(const MTL::Buffer* buffer, NS::UInteger offset, NS::UInteger index);
+  void setMeshBuffer(const MTL::Buffer* buffer, NS::UInteger offset, NS::UInteger index);
   void setVertexBufferOffset(NS::UInteger offset, NS::UInteger index);
   void setFragmentBufferOffset(NS::UInteger offset, NS::UInteger index);
   void setObjectBufferOffset(NS::UInteger offset, NS::UInteger index);
   void setMeshBufferOffset(NS::UInteger offset, NS::UInteger index);
-  void setVertexBytes(const void* bytes, NS::UInteger length,
-                      NS::UInteger index);
-  void setObjectBytes(const void* bytes, NS::UInteger length,
-                      NS::UInteger index);
+  void setVertexBytes(const void* bytes, NS::UInteger length, NS::UInteger index);
+  void setObjectBytes(const void* bytes, NS::UInteger length, NS::UInteger index);
   void setMeshBytes(const void* bytes, NS::UInteger length, NS::UInteger index);
 
   // Residency and synchronization.
@@ -109,40 +102,30 @@ class DeferredRenderEncoder {
   void useResources(const MTL::Resource* const resources[], NS::UInteger count,
                     MTL::ResourceUsage usage, MTL::RenderStages stages);
   void useHeap(const MTL::Heap* heap);
-  void memoryBarrier(MTL::BarrierScope scope, MTL::RenderStages after,
-                     MTL::RenderStages before);
+  void memoryBarrier(MTL::BarrierScope scope, MTL::RenderStages after, MTL::RenderStages before);
   void waitForFence(const MTL::Fence* fence, MTL::RenderStages stages);
   void updateFence(const MTL::Fence* fence, MTL::RenderStages stages);
   void insertDebugSignpost(NS::String* string);
 
   // Draws.
-  void drawPrimitives(MTL::PrimitiveType type, NS::UInteger start,
-                      NS::UInteger count, NS::UInteger instances);
-  void drawIndexedPrimitives(MTL::PrimitiveType type, NS::UInteger count,
-                             MTL::IndexType index_type,
-                             const MTL::Buffer* index_buffer,
-                             NS::UInteger index_offset);
-  void drawIndexedPrimitives(MTL::PrimitiveType type, NS::UInteger count,
-                             MTL::IndexType index_type,
-                             const MTL::Buffer* index_buffer,
-                             NS::UInteger index_offset, NS::UInteger instances,
-                             NS::Integer base_vertex,
+  void drawPrimitives(MTL::PrimitiveType type, NS::UInteger start, NS::UInteger count,
+                      NS::UInteger instances);
+  void drawIndexedPrimitives(MTL::PrimitiveType type, NS::UInteger count, MTL::IndexType index_type,
+                             const MTL::Buffer* index_buffer, NS::UInteger index_offset);
+  void drawIndexedPrimitives(MTL::PrimitiveType type, NS::UInteger count, MTL::IndexType index_type,
+                             const MTL::Buffer* index_buffer, NS::UInteger index_offset,
+                             NS::UInteger instances, NS::Integer base_vertex,
                              NS::UInteger base_instance);
-  void drawPatches(NS::UInteger control_points, NS::UInteger patch_start,
-                   NS::UInteger patch_count, const MTL::Buffer* index_buffer,
-                   NS::UInteger index_offset, NS::UInteger instances,
-                   NS::UInteger base_instance);
-  void drawMeshThreadgroups(MTL::Size groups, MTL::Size object_threads,
-                            MTL::Size mesh_threads);
+  void drawPatches(NS::UInteger control_points, NS::UInteger patch_start, NS::UInteger patch_count,
+                   const MTL::Buffer* index_buffer, NS::UInteger index_offset,
+                   NS::UInteger instances, NS::UInteger base_instance);
+  void drawMeshThreadgroups(MTL::Size groups, MTL::Size object_threads, MTL::Size mesh_threads);
   // Metal shader converter runtime draws (IRRuntimeDrawPrimitives /
   // IRRuntimeDrawIndexedPrimitives, non-instanced forms used by IssueDraw).
-  void IRDrawPrimitives(MTL::PrimitiveType type, uint64_t start,
-                        uint64_t count);
-  void IRDrawIndexedPrimitives(MTL::PrimitiveType type, uint64_t count,
-                               MTL::IndexType index_type,
-                               const MTL::Buffer* index_buffer,
-                               uint64_t index_offset, uint64_t instances,
-                               int64_t base_vertex, uint64_t base_instance);
+  void IRDrawPrimitives(MTL::PrimitiveType type, uint64_t start, uint64_t count);
+  void IRDrawIndexedPrimitives(MTL::PrimitiveType type, uint64_t count, MTL::IndexType index_type,
+                               const MTL::Buffer* index_buffer, uint64_t index_offset,
+                               uint64_t instances, int64_t base_vertex, uint64_t base_instance);
 
   struct Stats {
     uint64_t chunks = 0;

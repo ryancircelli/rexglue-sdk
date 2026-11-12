@@ -3,13 +3,14 @@
 // FABLE2_HITCH_TRACE (default on, =0 off): the command processor's swap-to-swap interval is split
 // into the time spent in a few known blocking or expensive places (exclusive: a nested scope
 // pauses its parent). When an interval is a hitch, one log line names where it went:
-//   [hitch] f<frame> <interval> ms (cpu <GPU Commands CPU ms>, base <baseline ms>): idle .. slot .. pso_wait ..
-// Hitch rule (relative, default): interval >= clamp(FABLE2_HITCH_RATIO (1.5) x median of the previous 32
-// intervals, FABLE2_HITCH_MS (40), FABLE2_HITCH_CEIL_MS (100)). Steady GPU-bound frames (e.g. ~47 ms at 3x on
-// an M3 Pro, the wait charged to slot/idle) are not hitches; a spike above the recent baseline is, and any
-// frame of 100 ms or more always is. Fewer than 8 previous intervals: the floor alone.
-// FABLE2_HITCH_RELATIVE=0: the old absolute rule (every interval >= FABLE2_HITCH_MS), line without "base".
-// Categories:
+//   [hitch] f<frame> <interval> ms (cpu <GPU Commands CPU ms>, base <baseline ms>): idle .. slot ..
+//   pso_wait ..
+// Hitch rule (relative, default): interval >= clamp(FABLE2_HITCH_RATIO (1.5) x median of the
+// previous 32 intervals, FABLE2_HITCH_MS (40), FABLE2_HITCH_CEIL_MS (100)). Steady GPU-bound frames
+// (e.g. ~47 ms at 3x on an M3 Pro, the wait charged to slot/idle) are not hitches; a spike above
+// the recent baseline is, and any frame of 100 ms or more always is. Fewer than 8 previous
+// intervals: the floor alone. FABLE2_HITCH_RELATIVE=0: the old absolute rule (every interval >=
+// FABLE2_HITCH_MS), line without "base". Categories:
 //   idle      the command processor had no guest commands (guest-side: game, loading, streaming)
 //   slot      waiting for a frame slot (GPU still busy with frame N-3)
 //   sync      synchronous command-buffer waits (readbacks, flush-and-wait)
@@ -52,9 +53,9 @@ enum Cat : int {
 };
 
 inline const char* CatName(int c) {
-  static const char* const names[kCount] = {"idle",   "slot",   "sync",    "pso_wait",
-                                            "pso_emu", "pso_rt", "pso_xfer", "pso_xclr", "xlate",  "rt_grow",
-                                            "tex",    "present"};
+  static const char* const names[kCount] = {"idle",    "slot",    "sync",     "pso_wait",
+                                            "pso_emu", "pso_rt",  "pso_xfer", "pso_xclr",
+                                            "xlate",   "rt_grow", "tex",      "present"};
   return names[c];
 }
 
@@ -109,16 +110,19 @@ struct Baseline {
   void Push(double us) {
     ring[next] = us;
     next = (next + 1) % kSize;
-    if (count < kSize) ++count;
+    if (count < kSize)
+      ++count;
   }
   // Median of the stored intervals; 0 when there are fewer than kMin.
   double Median() const {
-    if (count < kMin) return 0.0;
+    if (count < kMin)
+      return 0.0;
     double v[kSize];
     std::copy(ring, ring + count, v);
     std::nth_element(v, v + count / 2, v + count);
     double m = v[count / 2];
-    if (!(count & 1)) m = (m + *std::max_element(v, v + count / 2)) * 0.5;
+    if (!(count & 1))
+      m = (m + *std::max_element(v, v + count / 2)) * 0.5;
     return m;
   }
 };
@@ -146,7 +150,8 @@ inline ThreadState& State() {
 }
 
 inline void Begin(int cat) {
-  if (!Enabled()) return;
+  if (!Enabled())
+    return;
   ThreadState& s = State();
   const uint64_t now = mach_absolute_time();
   if (s.depth > 0 && s.depth <= 16) {
@@ -163,9 +168,11 @@ inline void Begin(int cat) {
 }
 
 inline void End() {
-  if (!Enabled()) return;
+  if (!Enabled())
+    return;
   ThreadState& s = State();
-  if (s.depth <= 0) return;
+  if (s.depth <= 0)
+    return;
   --s.depth;
   const uint64_t now = mach_absolute_time();
   if (s.depth < 16) {
@@ -187,10 +194,12 @@ struct Scope {
 struct ScopeIf {
   bool active;
   ScopeIf(int cat, bool a) : active(a) {
-    if (active) Begin(cat);
+    if (active)
+      Begin(cat);
   }
   ~ScopeIf() {
-    if (active) End();
+    if (active)
+      End();
   }
 };
 
@@ -200,14 +209,16 @@ inline uint64_t ThreadCpuUs() {
   mach_port_t self = mach_thread_self();
   const kern_return_t kr = thread_info(self, THREAD_BASIC_INFO, thread_info_t(&info), &n);
   mach_port_deallocate(mach_task_self(), self);
-  if (kr != KERN_SUCCESS) return 0;
+  if (kr != KERN_SUCCESS)
+    return 0;
   return uint64_t(info.user_time.seconds + info.system_time.seconds) * 1000000 +
          info.user_time.microseconds + info.system_time.microseconds;
 }
 
 // Called on the GPU Commands thread at every guest swap (before the frame id advances).
 inline void OnSwap(uint64_t frame) {
-  if (!Enabled()) return;
+  if (!Enabled())
+    return;
   static uint64_t last_swap = 0;
   static uint64_t last_cpu = 0;
   static uint32_t logged = 0;
@@ -243,7 +254,8 @@ inline void OnSwap(uint64_t frame) {
         if (us >= 500.0) {
           len += std::snprintf(buf + len, sizeof(buf) - size_t(len), " %s %.1f(%u)", CatName(c),
                                us / 1000.0, s.counts[c]);
-          if (len >= int(sizeof(buf)) - 32) break;
+          if (len >= int(sizeof(buf)) - 32)
+            break;
         }
       }
       const double other = interval_us > sum ? interval_us - sum : 0.0;
@@ -252,11 +264,12 @@ inline void OnSwap(uint64_t frame) {
         REXLOG_INFO("[hitch] f{} {:.1f} ms (cpu {:.1f}, base {:.1f}):{} other {:.1f}", frame,
                     interval_us / 1000.0, cpu_ms, base_us / 1000.0, len ? buf : "", other / 1000.0);
       } else {
-        REXLOG_INFO("[hitch] f{} {:.1f} ms (cpu {:.1f}):{} other {:.1f}", frame, interval_us / 1000.0, cpu_ms,
-                    len ? buf : "", other / 1000.0);
+        REXLOG_INFO("[hitch] f{} {:.1f} ms (cpu {:.1f}):{} other {:.1f}", frame,
+                    interval_us / 1000.0, cpu_ms, len ? buf : "", other / 1000.0);
       }
     }
-    if (Relative()) baseline.Push(interval_us);
+    if (Relative())
+      baseline.Push(interval_us);
   }
   last_swap = now;
   last_cpu = cpu;

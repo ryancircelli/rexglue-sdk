@@ -22,8 +22,7 @@ namespace metal {
 
 class MetalUploadBufferPool : public ui::GraphicsUploadBufferPool {
  public:
-  MetalUploadBufferPool(MTL::Device* device,
-                        size_t page_size = kDefaultPageSize);
+  MetalUploadBufferPool(MTL::Device* device, size_t page_size = kDefaultPageSize);
   ~MetalUploadBufferPool() override;
 
   using PageCreatedCallback = std::function<void(MTL::Buffer*)>;
@@ -35,13 +34,11 @@ class MetalUploadBufferPool : public ui::GraphicsUploadBufferPool {
   // gpu_address_out receives the GPU virtual address (buffer gpuAddress +
   // offset).
   uint8_t* Request(uint64_t submission_index, size_t size, size_t alignment,
-                   MTL::Buffer** buffer_out, size_t& offset_out,
-                   uint64_t& gpu_address_out);
+                   MTL::Buffer** buffer_out, size_t& offset_out, uint64_t& gpu_address_out);
 
   // Partial request (may return less than requested).
-  uint8_t* RequestPartial(uint64_t submission_index, size_t size,
-                          size_t alignment, MTL::Buffer** buffer_out,
-                          size_t& offset_out, uint64_t& gpu_address_out,
+  uint8_t* RequestPartial(uint64_t submission_index, size_t size, size_t alignment,
+                          MTL::Buffer** buffer_out, size_t& offset_out, uint64_t& gpu_address_out,
                           size_t& size_out);
 
  protected:
@@ -61,7 +58,7 @@ class MetalUploadBufferPool : public ui::GraphicsUploadBufferPool {
 };
 
 }  // namespace metal
-}  // namespace gpu
-}  // namespace xe
+}  // namespace graphics
+}  // namespace rex
 
 #endif  // XENIA_GPU_METAL_METAL_UPLOAD_BUFFER_POOL_H_

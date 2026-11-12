@@ -3,7 +3,8 @@
 // FABLE2_ENCODER_TRIM (default on, =0 restores the previous behaviour):
 // - debug labels and debug groups on per-frame encoders and command buffers are skipped. Each one
 //   created an NSString (some with an fmt::format first) on every encoder; nothing reads them
-//   outside a GPU capture. FABLE2_ENCODER_LABELS=1 or MTL_CAPTURE_ENABLED=1 keeps them with the trim on.
+//   outside a GPU capture. FABLE2_ENCODER_LABELS=1 or MTL_CAPTURE_ENABLED=1 keeps them with the
+//   trim on.
 // - render passes declare their attachment heaps from the render-target cache's record of the
 //   textures it bound, instead of walking all 8 colour attachment descriptors.
 // None of this changes what the GPU executes.

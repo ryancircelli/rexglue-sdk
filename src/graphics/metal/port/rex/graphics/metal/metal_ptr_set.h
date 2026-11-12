@@ -15,7 +15,7 @@
 
 namespace rex::graphics::metal {
 
-bool FlatPtrSetEnabled();  // FABLE2_DRAW_PREP_LITE, read once
+bool FlatPtrSetEnabled();       // FABLE2_DRAW_PREP_LITE, read once
 bool FlatPtrSetLite2Enabled();  // FABLE2_DRAW_PREP_LITE2, read once
 
 template <typename T>
@@ -26,17 +26,21 @@ class FlatPtrSet {
   explicit FlatPtrSet(bool flat) : flat_(flat) {}
   // Returns {unused, inserted} like std::unordered_set::insert (.second only).
   std::pair<bool, bool> insert(T p) {
-    if (!flat_) return {true, legacy_.insert(p).second};
+    if (!flat_)
+      return {true, legacy_.insert(p).second};
     if (!p) {  // null is the empty marker; track it separately
       bool inserted = !has_null_;
       has_null_ = true;
-      if (inserted) ++size_;
+      if (inserted)
+        ++size_;
       return {true, inserted};
     }
-    if ((size_ + 1) * 2 > slots_.size()) Grow();
+    if ((size_ + 1) * 2 > slots_.size())
+      Grow();
     size_t mask = slots_.size() - 1;
     for (size_t i = Hash(p) & mask;; i = (i + 1) & mask) {
-      if (slots_[i] == p) return {true, false};
+      if (slots_[i] == p)
+        return {true, false};
       if (!slots_[i]) {
         slots_[i] = p;
         ++size_;
@@ -45,13 +49,18 @@ class FlatPtrSet {
     }
   }
   size_t count(T p) const {
-    if (!flat_) return legacy_.count(p);
-    if (!p) return has_null_ ? 1 : 0;
-    if (slots_.empty()) return 0;
+    if (!flat_)
+      return legacy_.count(p);
+    if (!p)
+      return has_null_ ? 1 : 0;
+    if (slots_.empty())
+      return 0;
     size_t mask = slots_.size() - 1;
     for (size_t i = Hash(p) & mask;; i = (i + 1) & mask) {
-      if (slots_[i] == p) return 1;
-      if (!slots_[i]) return 0;
+      if (slots_[i] == p)
+        return 1;
+      if (!slots_[i])
+        return 0;
     }
   }
   bool empty() const { return flat_ ? size_ == 0 : legacy_.empty(); }
@@ -61,7 +70,8 @@ class FlatPtrSet {
       legacy_.clear();
       return;
     }
-    if (size_) std::fill(slots_.begin(), slots_.end(), T(nullptr));
+    if (size_)
+      std::fill(slots_.begin(), slots_.end(), T(nullptr));
     size_ = 0;
     has_null_ = false;
   }
@@ -78,9 +88,11 @@ class FlatPtrSet {
     slots_.assign(old.empty() ? 64 : old.size() * 2, T(nullptr));
     size_t mask = slots_.size() - 1;
     for (T p : old) {
-      if (!p) continue;
+      if (!p)
+        continue;
       size_t i = Hash(p) & mask;
-      while (slots_[i]) i = (i + 1) & mask;
+      while (slots_[i])
+        i = (i + 1) & mask;
       slots_[i] = p;
     }
   }

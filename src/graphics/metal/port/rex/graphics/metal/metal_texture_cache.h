@@ -46,10 +46,8 @@ class MetalTextureCache : public TextureCache {
   REX_METAL_TEST_FRIEND
 
  public:
-  MetalTextureCache(MetalCommandProcessor* command_processor,
-                    const RegisterFile& register_file,
-                    MetalSharedMemory& shared_memory,
-                    uint32_t draw_resolution_scale_x,
+  MetalTextureCache(MetalCommandProcessor* command_processor, const RegisterFile& register_file,
+                    MetalSharedMemory& shared_memory, uint32_t draw_resolution_scale_x,
                     uint32_t draw_resolution_scale_y);
   ~MetalTextureCache();
 
@@ -78,15 +76,14 @@ class MetalTextureCache : public TextureCache {
   // null texture's persistent slot when no valid texture is found.  If
   // texture_for_encoder_out is provided, also returns the Metal texture/view
   // that must be marked as used by the active render encoder.
-  uint32_t GetBindlessSRVIndexForBinding(
-      uint32_t fetch_constant, xenos::FetchOpDimension dimension,
-      bool is_signed, MTL::Texture** texture_for_encoder_out = nullptr,
-      uint32_t view_levels = 0);
+  uint32_t GetBindlessSRVIndexForBinding(uint32_t fetch_constant, xenos::FetchOpDimension dimension,
+                                         bool is_signed,
+                                         MTL::Texture** texture_for_encoder_out = nullptr,
+                                         uint32_t view_levels = 0);
   // Returns the persistent sampler_bindless_heap_ slot for the sampler that
   // would be created for the given binding.  Falls back to
   // null_sampler_bindless_index_ when no sampler can be resolved.
-  uint32_t GetBindlessSamplerIndexForBinding(
-      const DxbcShader::SamplerBinding& binding);
+  uint32_t GetBindlessSamplerIndexForBinding(const DxbcShader::SamplerBinding& binding);
 
   struct TextureSRVKey {
     TextureKey key;
@@ -97,16 +94,14 @@ class MetalTextureCache : public TextureCache {
   };
 
   // view_levels: per fetch constant (pixel stage, [mip-lod]); null for none.
-  bool AreActiveTextureSRVKeysUpToDate(
-      const TextureSRVKey* keys,
-      const DxbcShader::TextureBinding* host_shader_bindings,
-      size_t host_shader_binding_count,
-      const uint8_t* view_levels = nullptr) const;
-  void WriteActiveTextureSRVKeys(
-      TextureSRVKey* keys,
-      const DxbcShader::TextureBinding* host_shader_bindings,
-      size_t host_shader_binding_count,
-      const uint8_t* view_levels = nullptr) const;
+  bool AreActiveTextureSRVKeysUpToDate(const TextureSRVKey* keys,
+                                       const DxbcShader::TextureBinding* host_shader_bindings,
+                                       size_t host_shader_binding_count,
+                                       const uint8_t* view_levels = nullptr) const;
+  void WriteActiveTextureSRVKeys(TextureSRVKey* keys,
+                                 const DxbcShader::TextureBinding* host_shader_bindings,
+                                 size_t host_shader_binding_count,
+                                 const uint8_t* view_levels = nullptr) const;
 
   // [mip-lod] (metal_miplod_proof.h) the draw's state the proof needs.
   struct MipLodDrawInputs {
@@ -154,8 +149,7 @@ class MetalTextureCache : public TextureCache {
   int MipLodPassSafeForLevel(const void* texture, uint32_t level) const;
   uint64_t miplod_epoch() const { return miplod_epoch_; }
 
-  MTL::Texture* RequestSwapTexture(uint32_t& width_scaled_out,
-                                   uint32_t& height_scaled_out,
+  MTL::Texture* RequestSwapTexture(uint32_t& width_scaled_out, uint32_t& height_scaled_out,
                                    xenos::TextureFormat& format_out);
 
   union SamplerParameters {
@@ -174,16 +168,11 @@ class MetalTextureCache : public TextureCache {
     };
 
     SamplerParameters() : value(0) { static_assert_size(*this, sizeof(value)); }
-    bool operator==(const SamplerParameters& other) const {
-      return value == other.value;
-    }
-    bool operator!=(const SamplerParameters& other) const {
-      return value != other.value;
-    }
+    bool operator==(const SamplerParameters& other) const { return value == other.value; }
+    bool operator!=(const SamplerParameters& other) const { return value != other.value; }
   };
 
-  SamplerParameters GetSamplerParameters(
-      const DxbcShader::SamplerBinding& binding) const;
+  SamplerParameters GetSamplerParameters(const DxbcShader::SamplerBinding& binding) const;
   // [draw-prep-lite2] GetSamplerParameters is a pure function of the six fetch
   // constant dwords, the binding's four requested filters and the
   // anisotropic_override cvar: memoized by all of them (direct-mapped, command
@@ -196,8 +185,7 @@ class MetalTextureCache : public TextureCache {
     bool valid = false;
   };
   static constexpr uint32_t kSamplerParamsMemoSizeLog2 = 8;
-  mutable std::array<SamplerParamsMemoEntry, size_t(1)
-                                                 << kSamplerParamsMemoSizeLog2>
+  mutable std::array<SamplerParamsMemoEntry, size_t(1) << kSamplerParamsMemoSizeLog2>
       sampler_params_memo_;
   // [draw-prep-lite] GetBindlessSamplerIndexForBinding for parameters the caller already built.
   uint32_t GetBindlessSamplerIndexForParameters(SamplerParameters parameters);
@@ -209,24 +197,22 @@ class MetalTextureCache : public TextureCache {
   void BeginFrame() override {
     ++exact_verify_frame_;
     // The process hard-exits at close: log the totals every 256 frames.
-    if (!(exact_verify_frame_ & 255) && (load_hint_used_ | load_hint_rechecks_ | request_deferred_loads_ |
-                                          request_gap_loads_)) {
+    if (!(exact_verify_frame_ & 255) &&
+        (load_hint_used_ | load_hint_rechecks_ | request_deferred_loads_ | request_gap_loads_)) {
       LogLoadCheckSummary("frame");
     }
     TextureCache::BeginFrame();
   }
   struct TextureMaterializationPlan;
-  void RequestTexturesWithoutLoading(
-      uint32_t used_texture_mask,
-      const TextureMaterializationPlan* plan = nullptr);
+  void RequestTexturesWithoutLoading(uint32_t used_texture_mask,
+                                     const TextureMaterializationPlan* plan = nullptr);
   // [draw-prep-lite2] RequestTextures with the caller's MayRequestTexturesLoadData
   // result for the same mask, computed earlier in the same draw right after taking
   // `state`. If the state changed since (a watch callback, a texture created or
   // destroyed, bindings reset, a scaled-resolve change), the check runs again, as
   // before; otherwise the earlier result is exact. Loads outside the upload batch
   // (which the original asserts never happen) are counted and logged.
-  void RequestTexturesWithLoadHint(uint32_t used_texture_mask,
-                                   bool may_load_data,
+  void RequestTexturesWithLoadHint(uint32_t used_texture_mask, bool may_load_data,
                                    const LoadCheckState& state);
   struct TextureMaterializationPlan {
     std::vector<SharedMemory::Range> source_ranges;
@@ -245,7 +231,8 @@ class MetalTextureCache : public TextureCache {
     bool NeedsTextureUpload() const { return !texture_loads_.empty(); }
     bool PlansLoadOf(const void* texture) const {
       for (const auto& l : texture_loads_) {
-        if (l.texture == texture) return true;
+        if (l.texture == texture)
+          return true;
       }
       return false;
     }
@@ -276,10 +263,9 @@ class MetalTextureCache : public TextureCache {
   // content copied (and, with FABLE2_TEX_RENAME_VERIFY, the split path's load
   // is re-run into the old backing and compared). True when there is such
   // work; the caller ends the render pass first, then calls ...Encode.
-  bool TexRenameNeedsSettle(
-      const TextureMaterializationPlan* const* plans, size_t count) const;
-  void TexRenameSettleEncode(const TextureMaterializationPlan* const* plans,
-                             size_t count, MTL::CommandBuffer* cmd);
+  bool TexRenameNeedsSettle(const TextureMaterializationPlan* const* plans, size_t count) const;
+  void TexRenameSettleEncode(const TextureMaterializationPlan* const* plans, size_t count,
+                             MTL::CommandBuffer* cmd);
   // Renamed textures whose draw never flushed (orphans): same copy.
   bool TexRenameHasOrphans() const { return !rename_pending_list_.empty(); }
   bool TexRenameAnyPending() const;
@@ -305,15 +291,11 @@ class MetalTextureCache : public TextureCache {
   };
   static bool TexRenameTraceEnabled();
   static void TexRenameTraceNote(const std::string& sig);
-  void ClassifyMaterializationPlan(const TextureMaterializationPlan& plan,
-                                   bool render_pass_open, bool trace,
-                                   std::vector<const void*>& seen,
+  void ClassifyMaterializationPlan(const TextureMaterializationPlan& plan, bool render_pass_open,
+                                   bool trace, std::vector<const void*>& seen,
                                    TextureFlushClass& out);
-  uint64_t loaded_texture_data_count() const {
-    return loaded_texture_data_count_;
-  }
-  bool PrepareTextureMaterialization(const RegisterFile& regs,
-                                     uint32_t used_texture_mask,
+  uint64_t loaded_texture_data_count() const { return loaded_texture_data_count_; }
+  bool PrepareTextureMaterialization(const RegisterFile& regs, uint32_t used_texture_mask,
                                      TextureMaterializationPlan& plan);
   bool ExecuteTextureMaterialization(TextureMaterializationPlan& plan);
   void BeginTextureUploadBatch();
@@ -321,19 +303,16 @@ class MetalTextureCache : public TextureCache {
   bool PrepareTextureDataLoadRanges(Texture** textures, uint32_t texture_count,
                                     uint64_t base_outdated_mask,
                                     uint64_t mips_outdated_mask) override;
-  bool RequestTextureDataRange(Texture& texture, TextureDataRangeSource source,
-                               uint32_t start, uint32_t length) override;
+  bool RequestTextureDataRange(Texture& texture, TextureDataRangeSource source, uint32_t start,
+                               uint32_t length) override;
 
   bool IsSignedVersionSeparateForFormat(TextureKey key) const override;
   bool IsScaledResolveSupportedForFormat(TextureKey key) const override;
-  bool EnsureScaledResolveMemoryCommitted(
-      uint32_t start_unscaled, uint32_t length_unscaled,
-      uint32_t length_scaled_alignment_log2 = 0) override;
-  bool MakeScaledResolveRangeCurrent(uint32_t start_unscaled,
-                                     uint32_t length_unscaled,
+  bool EnsureScaledResolveMemoryCommitted(uint32_t start_unscaled, uint32_t length_unscaled,
+                                          uint32_t length_scaled_alignment_log2 = 0) override;
+  bool MakeScaledResolveRangeCurrent(uint32_t start_unscaled, uint32_t length_unscaled,
                                      uint32_t length_scaled_alignment_log2 = 0);
-  bool GetCurrentScaledResolveBuffer(MTL::Buffer*& buffer_out,
-                                     size_t& buffer_offset_out,
+  bool GetCurrentScaledResolveBuffer(MTL::Buffer*& buffer_out, size_t& buffer_offset_out,
                                      size_t& buffer_length_out) const;
   // [res-scale texture-precommit] exact record of scaled-resolve memory
   // written in the open command buffer (resolves, direct host resolves and
@@ -342,18 +321,15 @@ class MetalTextureCache : public TextureCache {
   // has no such write, since the pre-commit command buffer runs before the
   // open one. Committed writers finish before the pre-commit command buffer
   // starts (main_cb_event_ wait); standalone ones are waited on the CPU.
-  void MarkScaledResolveWrite(uint32_t start_unscaled,
-                              uint32_t length_unscaled);
-  bool ScaledResolveRangeWrittenInOpenCommandBuffer(
-      uint32_t start_unscaled, uint32_t length_unscaled) const;
+  void MarkScaledResolveWrite(uint32_t start_unscaled, uint32_t length_unscaled);
+  bool ScaledResolveRangeWrittenInOpenCommandBuffer(uint32_t start_unscaled,
+                                                    uint32_t length_unscaled) const;
   // FABLE2_SCALED_TEXTURE_PRECOMMIT=0 keeps scaled-resolve loads out of the
   // texture pre-commit route (default on; needs FABLE2_TEXTURE_PRECOMMIT).
   static bool ScaledTexturePrecommitEnabled();
   uint32_t GetHostFormatSwizzle(TextureKey key) const override;
-  uint32_t GetMaxHostTextureWidthHeight(
-      xenos::DataDimension dimension) const override;
-  uint32_t GetMaxHostTextureDepthOrArraySize(
-      xenos::DataDimension dimension) const override;
+  uint32_t GetMaxHostTextureWidthHeight(xenos::DataDimension dimension) const override;
+  uint32_t GetMaxHostTextureDepthOrArraySize(xenos::DataDimension dimension) const override;
   std::unique_ptr<Texture> CreateTexture(TextureKey key) override;
   bool LoadTextureDataFromResidentMemoryImpl(Texture& texture, bool load_base,
                                              bool load_mips) override;
@@ -371,18 +347,14 @@ class MetalTextureCache : public TextureCache {
   // read are compared with the same range copied in the current command
   // buffer at the load's original position ([texture-precommit-verify]).
   static bool PrecommitVerifyEnabled();
-  bool HasPendingPrecommitVerify() const {
-    return !precommit_verify_pending_.empty();
-  }
+  bool HasPendingPrecommitVerify() const { return !precommit_verify_pending_.empty(); }
   void EncodePrecommitVerifyReferences(MTL::CommandBuffer* cmd);
-  bool CanUploadToPrecommit() const {
-    return ShouldUploadViaBlit() && !HasPendingUploadWork();
-  }
+  bool CanUploadToPrecommit() const { return ShouldUploadViaBlit() && !HasPendingUploadWork(); }
   bool HasPendingUploadWork() const {
     // Parked pre-commit work is not pending for these decisions: it lives in the pre-commit
     // command buffer and is closed before any other pre-commit encoder opens.
-    return (!deferred_upload_parked_ && (deferred_upload_compute_encoder_ != nullptr ||
-                                         !deferred_upload_copies_.empty())) ||
+    return (!deferred_upload_parked_ &&
+            (deferred_upload_compute_encoder_ != nullptr || !deferred_upload_copies_.empty())) ||
            upload_batch_command_buffer_ != nullptr;
   }
   // [tex-upload-merge] FABLE2_TEX_UPLOAD_MERGE (default on, =0 closes every batch's
@@ -401,11 +373,10 @@ class MetalTextureCache : public TextureCache {
     kCpuGuestMemory,
   };
   // GPU-based texture loading entry point. Returns true on success.
-  bool TryGpuLoadTexture(Texture& texture, bool load_base, bool load_mips,
-                         TextureLoadSourceMode source_mode =
-                             TextureLoadSourceMode::kResidentMemory);
-  bool LoadTextureDataFromCpuGuestMemory(Texture& texture, bool load_base,
-                                         bool load_mips);
+  bool TryGpuLoadTexture(
+      Texture& texture, bool load_base, bool load_mips,
+      TextureLoadSourceMode source_mode = TextureLoadSourceMode::kResidentMemory);
+  bool LoadTextureDataFromCpuGuestMemory(Texture& texture, bool load_base, bool load_mips);
   MTL::StorageMode GetCacheTextureStorageMode() const;
   bool ShouldUploadViaBlit() const;
   void BeginUploadCommandBufferBatch();
@@ -415,17 +386,12 @@ class MetalTextureCache : public TextureCache {
   bool EndDeferredUploadEncoderBatch();
   bool FlushDeferredUploadEncoderBatch();
   class UploadBatchScope;
-  MTL::ComputeCommandEncoder* GetDeferredUploadComputeEncoder(
-      MTL::CommandBuffer* command_buffer);
-  void QueueDeferredUploadCopy(MTL::Buffer* source_buffer,
-                               size_t source_offset_bytes,
-                               size_t source_row_pitch,
-                               size_t source_bytes_per_image,
-                               MTL::Texture* destination_texture,
-                               uint32_t destination_slice,
-                               uint32_t destination_level, uint32_t width,
-                               uint32_t height, uint32_t depth,
-                               bool scaled = false);
+  MTL::ComputeCommandEncoder* GetDeferredUploadComputeEncoder(MTL::CommandBuffer* command_buffer);
+  void QueueDeferredUploadCopy(MTL::Buffer* source_buffer, size_t source_offset_bytes,
+                               size_t source_row_pitch, size_t source_bytes_per_image,
+                               MTL::Texture* destination_texture, uint32_t destination_slice,
+                               uint32_t destination_level, uint32_t width, uint32_t height,
+                               uint32_t depth, bool scaled = false);
 
   // Format / load shader mapping for Metal texture loading.
   bool IsDecompressionNeededForKey(TextureKey key) const;
@@ -449,6 +415,7 @@ class MetalTextureCache : public TextureCache {
   // [tex-load-direct] scaled loads writing the host texture directly
   // (backends/metal/shaders/texture_load_dest_texture.metal).
   MTL::ComputePipelineState* load_pipelines_scaled_tex_[kLoadShaderCount] = {};
+
  public:
   // FABLE2_TEX_LOAD_DIRECT (default on): resolution-scaled texture loads write
   // the texture from the untile compute instead of a staging buffer + blit.
@@ -458,11 +425,9 @@ class MetalTextureCache : public TextureCache {
   // MarkRangeAsResolved after a scaled copy resolve: classifies the cached
   // scaled textures whose base level the resolve writes (census), and, when
   // enabled, writes the resolve output straight into the matching ones.
-  void MarkRangeAsResolvedRtt(const draw_util::ResolveInfo& resolve_info,
-                              uint32_t written_address,
+  void MarkRangeAsResolvedRtt(const draw_util::ResolveInfo& resolve_info, uint32_t written_address,
                               uint32_t written_length) {
-    MarkRangeAsResolvedRttFused(resolve_info, written_address, written_length,
-                                nullptr);
+    MarkRangeAsResolvedRttFused(resolve_info, written_address, written_length, nullptr);
   }
   // FABLE2_RTT_DIAG: 0 off, 1 census (trace only), 2 skip (UNSAFE: matching
   // textures are marked up to date without being written; image wrong).
@@ -522,8 +487,7 @@ class MetalTextureCache : public TextureCache {
       rtt_census_sigs_["fused-reject no-pipeline"]++;
     }
   }
-  bool RttPrepareFused(const draw_util::ResolveInfo& resolve_info,
-                       RttFusedPlan& plan);
+  bool RttPrepareFused(const draw_util::ResolveInfo& resolve_info, RttFusedPlan& plan);
   // [tile-resolve] Draw-binding serials: a texture bound by a draw prepared
   // after the last render-encoder end may be sampled by the open pass, so a
   // tile resolve in that pass must not write it (cross-tile write-after-read).
@@ -535,8 +499,7 @@ class MetalTextureCache : public TextureCache {
   }
   // texture: a RttFusedPlan::textures entry.
   bool TileResolveTextureIdleInOpenPass(const void* texture) const {
-    const auto* t = static_cast<const MetalTexture*>(
-        static_cast<const Texture*>(texture));
+    const auto* t = static_cast<const MetalTexture*>(static_cast<const Texture*>(texture));
     return !t || t->tres_bind_serial_ <= tres_encoder_end_serial_;
   }
   // [mip-lod] FABLE2_MIPLOD_TRACE=1 (diagnostic): remembers, per mipped
@@ -544,13 +507,10 @@ class MetalTextureCache : public TextureCache {
   // fetch instruction's LOD attributes) and logs it when a tile resolve into
   // one of its levels falls back on the in-pass hazard.
   static bool MipLodTraceEnabled();
-  void MipLodTraceNoteDraw(const Shader& pixel_shader, uint64_t vs_hash,
-                           uint32_t prim);
-  void MipLodTraceHazard(const void* fused_texture, uint32_t level,
-                         const char* what);
+  void MipLodTraceNoteDraw(const Shader& pixel_shader, uint64_t vs_hash, uint32_t prim);
+  void MipLodTraceHazard(const void* fused_texture, uint32_t level, const char* what);
   // The fused variant of a scaled host resolve pipeline (null if none).
-  MTL::ComputePipelineState* RttFusedPipeline(
-      MTL::ComputePipelineState* pipeline);
+  MTL::ComputePipelineState* RttFusedPipeline(MTL::ComputePipelineState* pipeline);
   // [rtt-prewarm] Builds the fused resolve pipelines on two background
   // threads at startup (FABLE2_RTT_PREWARM=0: off); RttFusedPipeline takes
   // a prebuilt one by name instead of compiling on the draw path.
@@ -560,15 +520,13 @@ class MetalTextureCache : public TextureCache {
   // After the fused dispatch, instead of MarkRangeAsResolvedRtt.
   // [effects-native] an unscaled resolve while scaling is on: the scaled
   // textures over the range are invalidated like by any resolve.
-  void MarkRangeAsResolvedUnscaledRtt(uint32_t written_address,
-                                      uint32_t written_length);
+  void MarkRangeAsResolvedUnscaledRtt(uint32_t written_address, uint32_t written_length);
   void MarkRangeAsResolvedRttFused(const draw_util::ResolveInfo& resolve_info,
-                                   uint32_t written_address,
-                                   uint32_t written_length,
+                                   uint32_t written_address, uint32_t written_length,
                                    const RttFusedPlan* plan);
+
  private:
-  std::unordered_map<MTL::ComputePipelineState*, MTL::ComputePipelineState*>
-      rtt_fused_pipelines_;
+  std::unordered_map<MTL::ComputePipelineState*, MTL::ComputePipelineState*> rtt_fused_pipelines_;
   uint64_t tres_bind_serial_counter_ = 0;
   uint64_t tres_encoder_end_serial_ = 0;
   uint64_t miplod_epoch_ = 1;
@@ -611,9 +569,7 @@ class MetalTextureCache : public TextureCache {
   void LoadCheckExactVerifyBegin();
   void LoadCheckExactVerifyAfterRequest(uint32_t used_texture_mask,
                                         const TextureMaterializationPlan* plan);
-  void LoadCheckExactForget(const Texture* texture) {
-    exact_deferred_.erase(texture);
-  }
+  void LoadCheckExactForget(const Texture* texture) { exact_deferred_.erase(texture); }
   struct ExactDeferred {
     uint64_t serial = 0;
     uint64_t frame = 0;
@@ -637,15 +593,13 @@ class MetalTextureCache : public TextureCache {
     ~MetalTexture() override;
 
     MTL::Texture* metal_texture() const { return metal_texture_; }
-    MTL::Texture* GetOrCreateView(uint32_t host_swizzle,
-                                  xenos::FetchOpDimension dimension,
+    MTL::Texture* GetOrCreateView(uint32_t host_swizzle, xenos::FetchOpDimension dimension,
                                   bool is_signed, uint32_t view_levels = 0);
-    MTL::Texture* GetOrCreate3DAs2DView(uint32_t host_swizzle,
-                                        xenos::FetchOpDimension dimension,
+    MTL::Texture* GetOrCreate3DAs2DView(uint32_t host_swizzle, xenos::FetchOpDimension dimension,
                                         bool is_signed);
-    uint32_t GetOrCreateBindlessSRVIndexAndView(
-        uint32_t host_swizzle, xenos::FetchOpDimension dimension,
-        bool is_signed, MTL::Texture** view_out, uint32_t view_levels = 0);
+    uint32_t GetOrCreateBindlessSRVIndexAndView(uint32_t host_swizzle,
+                                                xenos::FetchOpDimension dimension, bool is_signed,
+                                                MTL::Texture** view_out, uint32_t view_levels = 0);
 
     // [texture-precommit] set after the first successful data load; set when
     // the texture is handed to the presenter (never pre-committed then).
@@ -664,11 +618,8 @@ class MetalTextureCache : public TextureCache {
                                 std::vector<MTL::Texture*>& old_views_out);
     // [tex-rename verify] temporarily exchange the backing and direct-write
     // view with another texture (no slot changes).
-    void SwapBackingForVerify(MTL::Texture*& texture,
-                              MTL::Texture*& direct_view);
-    bool has_3d_as_2d() const {
-      return texture_3d_as_2d_ != nullptr || is_3d_as_2d_wrapper_;
-    }
+    void SwapBackingForVerify(MTL::Texture*& texture, MTL::Texture*& direct_view);
+    bool has_3d_as_2d() const { return texture_3d_as_2d_ != nullptr || is_3d_as_2d_wrapper_; }
     // [tex-rename] renamed and not yet written by its load; rename_src_ is
     // the old backing (retained) until settled.
     bool rename_pending_ = false;
@@ -696,14 +647,11 @@ class MetalTextureCache : public TextureCache {
     MTL::Texture* direct_write_view_ = nullptr;
     uint32_t direct_write_view_texel_bytes_ = 0;
     bool direct_write_view_failed_ = false;
-    uint64_t GetViewKey(uint32_t host_swizzle,
-                        xenos::FetchOpDimension dimension, bool is_signed,
-                        MTL::PixelFormat view_format,
-                        uint32_t view_levels = 0) const;
+    uint64_t GetViewKey(uint32_t host_swizzle, xenos::FetchOpDimension dimension, bool is_signed,
+                        MTL::PixelFormat view_format, uint32_t view_levels = 0) const;
     MTL::PixelFormat GetViewPixelFormat(bool is_signed) const;
     MTL::TextureType GetViewType(xenos::FetchOpDimension dimension) const;
-    uint32_t GetOrCreateBindlessSRVIndexForResolvedView(uint64_t view_key,
-                                                        MTL::Texture* view);
+    uint32_t GetOrCreateBindlessSRVIndexForResolvedView(uint64_t view_key, MTL::Texture* view);
 
     MetalTextureCache& texture_cache_;
     MTL::Texture* metal_texture_;
@@ -715,7 +663,8 @@ class MetalTextureCache : public TextureCache {
     MTL::PixelFormat mtl_pixel_format_ = MTL::PixelFormatInvalid;
     MTL::TextureType mtl_texture_type_ = MTL::TextureType2D;
     void RefreshMtlProps() {
-      if (!mtl_props_cached_) return;
+      if (!mtl_props_cached_)
+        return;
       if (!metal_texture_) {
         mtl_props_cached_ = false;
         return;
@@ -725,16 +674,13 @@ class MetalTextureCache : public TextureCache {
       mtl_texture_type_ = metal_texture_->textureType();
     }
     NS::UInteger MtlLevelCount() const {
-      return mtl_props_cached_ ? mtl_level_count_
-                               : metal_texture_->mipmapLevelCount();
+      return mtl_props_cached_ ? mtl_level_count_ : metal_texture_->mipmapLevelCount();
     }
     MTL::PixelFormat MtlPixelFormat() const {
-      return mtl_props_cached_ ? mtl_pixel_format_
-                               : metal_texture_->pixelFormat();
+      return mtl_props_cached_ ? mtl_pixel_format_ : metal_texture_->pixelFormat();
     }
     MTL::TextureType MtlTextureType() const {
-      return mtl_props_cached_ ? mtl_texture_type_
-                               : metal_texture_->textureType();
+      return mtl_props_cached_ ? mtl_texture_type_ : metal_texture_->textureType();
     }
     uint32_t bindless_srv_index_ = UINT32_MAX;
     std::unique_ptr<MetalTexture> texture_3d_as_2d_;
@@ -772,6 +718,7 @@ class MetalTextureCache : public TextureCache {
     uint64_t miplod_epoch_ = 0;
     int32_t miplod_max_read_ = -1;
     bool miplod_unbounded_ = false;
+
    private:
     std::unordered_map<uint64_t, MTL::Texture*> swizzled_view_cache_;
     std::unordered_map<uint64_t, uint32_t> swizzled_view_bindless_srv_indices_;
@@ -780,18 +727,14 @@ class MetalTextureCache : public TextureCache {
  private:
   // Metal texture creation helpers
   MTL::Texture* CreateTexture(MTL::TextureDescriptor* descriptor);
-  MTL::Texture* CreateTexture2D(uint32_t width, uint32_t height,
-                                uint32_t array_length, MTL::PixelFormat format,
-                                MTL::TextureSwizzleChannels swizzle,
-                                uint32_t mip_levels = 1,
-                                bool shader_write = false);
+  MTL::Texture* CreateTexture2D(uint32_t width, uint32_t height, uint32_t array_length,
+                                MTL::PixelFormat format, MTL::TextureSwizzleChannels swizzle,
+                                uint32_t mip_levels = 1, bool shader_write = false);
   MTL::Texture* CreateTexture3D(uint32_t width, uint32_t height, uint32_t depth,
-                                MTL::PixelFormat format,
-                                MTL::TextureSwizzleChannels swizzle,
+                                MTL::PixelFormat format, MTL::TextureSwizzleChannels swizzle,
                                 uint32_t mip_levels = 1);
   MTL::Texture* CreateTextureCube(uint32_t width, MTL::PixelFormat format,
-                                  MTL::TextureSwizzleChannels swizzle,
-                                  uint32_t mip_levels = 1,
+                                  MTL::TextureSwizzleChannels swizzle, uint32_t mip_levels = 1,
                                   uint32_t cube_count = 1);
   struct ScaledResolveBuffer {
     MTL::Buffer* buffer = nullptr;
@@ -809,16 +752,12 @@ class MetalTextureCache : public TextureCache {
   };
 
   bool GetScaledResolveRange(uint32_t start_unscaled, uint32_t length_unscaled,
-                             uint32_t length_scaled_alignment_log2,
-                             uint64_t& start_scaled_out,
+                             uint32_t length_scaled_alignment_log2, uint64_t& start_scaled_out,
                              uint64_t& length_scaled_out) const;
-  bool IsScaledResolveRangeResident(
-      uint32_t start_unscaled, uint32_t length_unscaled,
-      uint32_t length_scaled_alignment_log2) const;
-  bool EnsureScaledResolveBufferRange(uint64_t start_scaled,
-                                      uint64_t length_scaled);
-  void MarkScaledResolveWriteScaled(uint64_t start_scaled,
-                                    uint64_t length_scaled);
+  bool IsScaledResolveRangeResident(uint32_t start_unscaled, uint32_t length_unscaled,
+                                    uint32_t length_scaled_alignment_log2) const;
+  bool EnsureScaledResolveBufferRange(uint64_t start_scaled, uint64_t length_scaled);
+  void MarkScaledResolveWriteScaled(uint64_t start_scaled, uint64_t length_scaled);
   // Scaled [start, end) ranges written in submission
   // scaled_open_writes_submission_ (see MarkScaledResolveWrite).
   std::vector<std::pair<uint64_t, uint64_t>> scaled_open_writes_;
@@ -881,8 +820,7 @@ class MetalTextureCache : public TextureCache {
   std::shared_ptr<UploadBufferPool> upload_buffer_pool_;
   MTL::CommandBuffer* upload_batch_command_buffer_ = nullptr;
   bool upload_batch_command_buffer_has_work_ = false;
-  std::vector<std::pair<uint32_t, uint32_t>>
-      upload_batch_command_buffer_shared_memory_ranges_;
+  std::vector<std::pair<uint32_t, uint32_t>> upload_batch_command_buffer_shared_memory_ranges_;
   uint32_t upload_batch_depth_ = 0;
   MTL::CommandBuffer* deferred_upload_command_buffer_ = nullptr;
   MTL::ComputeCommandEncoder* deferred_upload_compute_encoder_ = nullptr;
@@ -896,8 +834,7 @@ class MetalTextureCache : public TextureCache {
     MTL::Buffer* readback = nullptr;  // one per level/slice
     MTL::Texture* texture = nullptr;  // retained
     size_t ref_offset = 0;
-    uint32_t level = 0, slice = 0, width = 0, height = 0, texel_bytes = 0,
-             pitch = 0, format = 0;
+    uint32_t level = 0, slice = 0, width = 0, height = 0, texel_bytes = 0, pitch = 0, format = 0;
     bool rtt = false;  // [resolve-to-texture] verify of a kept texture
     uint32_t base = 0;
   };
@@ -912,8 +849,7 @@ class MetalTextureCache : public TextureCache {
   // [tex-content-check] REX_METAL_TEX_CONTENT_CHECK=<N>: every N submissions,
   // hash the guest bytes of each bound, up-to-date texture and compare them
   // with what it was loaded from. 0 (default) is off.
-  void TexContentRecord(MetalTexture& texture, bool base, bool mips,
-                        uint8_t route);
+  void TexContentRecord(MetalTexture& texture, bool base, bool mips, uint8_t route);
   // Takes the reference hash of a range that just became up to date.
   void TexContentMarkCurrent(MetalTexture& texture, uint32_t i);
 
@@ -927,9 +863,8 @@ class MetalTextureCache : public TextureCache {
   uint64_t cc_mismatch_[3] = {};
   uint64_t cc_stale_loads_ = 0;
   uint64_t cc_last_summary_ = 0;
-  static void CpuSourceWatchThunk(const global_unique_lock_type& global_lock,
-                                  void* context, void* data, uint64_t argument,
-                                  bool invalidated_by_gpu);
+  static void CpuSourceWatchThunk(const global_unique_lock_type& global_lock, void* context,
+                                  void* data, uint64_t argument, bool invalidated_by_gpu);
   uint32_t deferred_upload_batch_depth_ = 0;
   MTL::CommandBuffer* precommit_target_cb_ = nullptr;
   struct PrecommitVerifySample {
@@ -981,24 +916,20 @@ class MetalTextureCache : public TextureCache {
   static constexpr uint8_t kRttClassMipLevel = 6;
   static bool RttMipsEnabled();
   static bool Rtt16Enabled();
-  void RttCollect(const draw_util::ResolveInfo& resolve_info,
-                  uint32_t written_address, uint32_t written_length,
-                  std::vector<RttCandidate>& out);
+  void RttCollect(const draw_util::ResolveInfo& resolve_info, uint32_t written_address,
+                  uint32_t written_length, std::vector<RttCandidate>& out);
   void RttRegister(MetalTexture* texture);
   void RttUnregister(MetalTexture* texture);
   void RttCensusLoad(MetalTexture& texture, uint64_t scaled_bytes);
   void RttCensusTick();
-  void RttTraceLoadResult(Texture& texture, bool load_base, bool load_mips,
-                          bool ok);
+  void RttTraceLoadResult(Texture& texture, bool load_base, bool load_mips, bool ok);
   // Returns true when the load was handled here (kept or verified).
   bool RttTryKeep(MetalTexture& texture, bool load_base, bool load_mips);
-  static void RttGlobalWatchThunk(const global_unique_lock_type& global_lock,
-                                  void* context, uint32_t address_first,
-                                  uint32_t address_last,
+  static void RttGlobalWatchThunk(const global_unique_lock_type& global_lock, void* context,
+                                  uint32_t address_first, uint32_t address_last,
                                   bool invalidated_by_gpu);
   void RttNoteFusedUnused(MetalTexture& texture);
-  void RttOnInvalidate(uint32_t address_first, uint32_t address_last,
-                       bool invalidated_by_gpu);
+  void RttOnInvalidate(uint32_t address_first, uint32_t address_last, bool invalidated_by_gpu);
   SharedMemory::GlobalWatchHandle rtt_global_watch_ = nullptr;
   bool rtt_in_resolve_ = false;
   // Exact guest byte range of the resolve being marked (watches fire for
@@ -1017,20 +948,16 @@ class MetalTextureCache : public TextureCache {
   // current content with it instead of writing the texture (RTT verify).
   bool rtt_verify_only_ = false;
   // [tex-rename]
-  bool TexRenameTry(MetalTexture& texture, bool load_base, bool load_mips,
-                    bool use_cpu_source);
+  bool TexRenameTry(MetalTexture& texture, bool load_base, bool load_mips, bool use_cpu_source);
   // Load blockers other than "sampled by the open command buffer"
   // (pre-commit eligibility); ignore_invalid: pages not uploaded yet do not
   // count (the flush uploads them before classifying).
-  bool LoadOtherwiseEligible(MetalTexture& texture, bool load_base,
-                             bool load_mips, bool use_cpu_source,
-                             bool ignore_invalid);
-  void TexRenameClearPending(MetalTexture& texture, bool load_base,
-                             bool load_mips);
+  bool LoadOtherwiseEligible(MetalTexture& texture, bool load_base, bool load_mips,
+                             bool use_cpu_source, bool ignore_invalid);
+  void TexRenameClearPending(MetalTexture& texture, bool load_base, bool load_mips);
   void TexRenameSettleOne(MetalTexture& texture, MTL::CommandBuffer* cmd,
                           MTL::BlitCommandEncoder*& blit);
-  void TexRenameRetire(MTL::Texture* texture,
-                       std::vector<MTL::Texture*>&& views);
+  void TexRenameRetire(MTL::Texture* texture, std::vector<MTL::Texture*>&& views);
   void TexRenameCompleted(uint64_t completed_submission);
   // A MetalTexture being destroyed leaves the pending list.
   void TexRenameForget(MetalTexture* texture);
@@ -1066,14 +993,13 @@ class MetalTextureCache : public TextureCache {
   // [tex-rename] the planned load will not write the texture (it is up to
   // date again, or RTT keeps it whole). Should that change before it runs,
   // TryGpuLoadTexture's guard ends the pre-commit route first.
-  bool PlannedLoadIsNoop(MetalTexture& texture, bool load_base,
-                         bool load_mips);
+  bool PlannedLoadIsNoop(MetalTexture& texture, bool load_base, bool load_mips);
   std::unordered_map<std::string, uint64_t> rtt_census_sigs_;
   uint64_t rtt_census_last_log_us_ = 0;
 };
 
 }  // namespace metal
-}  // namespace gpu
-}  // namespace xe
+}  // namespace graphics
+}  // namespace rex
 
 #endif  // XENIA_GPU_METAL_METAL_TEXTURE_CACHE_H_

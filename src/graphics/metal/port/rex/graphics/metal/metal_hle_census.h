@@ -1,4 +1,5 @@
-// HLE census, command-processor side (trace only; FABLE2_HLE_CENSUS=1, docs/hle-census-20261013.md).
+// HLE census, command-processor side (trace only; FABLE2_HLE_CENSUS=1,
+// docs/hle-census-20261013.md).
 //
 // The executable wraps every guest function that builds a PM4 draw header
 // (src/core/hotfunc/gpu/HleCensus.cpp) and records each header's guest physical address with a
@@ -69,7 +70,8 @@ inline State& S() {
 
 inline void Resolve() {
   State& s = S();
-  if (s.resolved) return;
+  if (s.resolved)
+    return;
   s.resolved = true;
   s.lookup = reinterpret_cast<State::LookupFn>(dlsym(RTLD_DEFAULT, "fable2_hle_census_lookup"));
   s.site = reinterpret_cast<State::SiteFn>(dlsym(RTLD_DEFAULT, "fable2_hle_census_site"));
@@ -111,17 +113,28 @@ inline void OnIndirectBuffer(uint32_t ptr) {
 inline void OnIssueDraw(int kind) {
   State& s = S();
   switch (kind) {
-    case 0: ++s.col; break;
-    case 1: ++s.dep; break;
-    case 2: ++s.copy; break;
-    default: ++s.other; break;
+    case 0:
+      ++s.col;
+      break;
+    case 1:
+      ++s.dep;
+      break;
+    case 2:
+      ++s.copy;
+      break;
+    default:
+      ++s.other;
+      break;
   }
-  if (s.current_site == -1) ++s.unmatched;
+  if (s.current_site == -1)
+    ++s.unmatched;
   ++s.per_site[s.current_site];
   s.current_site = -1;
 }
 
-inline int CurrentSite() { return S().current_site; }
+inline int CurrentSite() {
+  return S().current_site;
+}
 
 // FABLE2_TILING_COLLAPSE (docs/hle-census-20261013.md section 10). "skip2" is an UNSAFE
 // diagnostic: indirect buffers executed while the bin select names only the second tile's bins are
@@ -130,7 +143,8 @@ enum class CollapseMode { kOff, kSkipSecondTile };
 inline CollapseMode Collapse() {
   static const CollapseMode m = [] {
     const char* v = MetalDebugEnv("TILING_COLLAPSE");  // getenv-ok: once
-    if (v && std::string(v) == "skip2") return CollapseMode::kSkipSecondTile;
+    if (v && std::string(v) == "skip2")
+      return CollapseMode::kSkipSecondTile;
     return CollapseMode::kOff;
   }();
   return m;
@@ -162,8 +176,10 @@ inline void EndFrame(uint64_t frame) {
   uint32_t maxx = 0, replayed = 0;
   std::map<int, uint32_t> uniq_site;
   for (const auto& e : s.execs) {
-    if (e.second.n > maxx) maxx = e.second.n;
-    if (e.second.n > 1) ++replayed;
+    if (e.second.n > maxx)
+      maxx = e.second.n;
+    if (e.second.n > 1)
+      ++replayed;
     ++uniq_site[e.second.site];
   }
   std::string sites;
@@ -180,7 +196,8 @@ inline void EndFrame(uint64_t frame) {
     for (int id = 0;; ++id) {
       uint32_t b = 0, lr = 0;
       uint64_t c = 0, d = 0;
-      if (!s.site(id, &b, &lr, &c, &d)) break;
+      if (!s.site(id, &b, &lr, &c, &d))
+        break;
       REXLOG_INFO("[hle-census] guest site {} builder {:08X} lr {:08X} calls {} draw headers {}",
                   id, b, lr, c, d);
     }

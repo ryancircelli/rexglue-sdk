@@ -49,12 +49,10 @@ class TraceWriter {
   void WriteIndirectBufferEnd();
   void WritePacketStart(uint32_t base_ptr, uint32_t count);
   void WritePacketEnd();
-  void WriteMemoryRead(uint32_t base_ptr, size_t length,
-                       const void* host_ptr = nullptr);
+  void WriteMemoryRead(uint32_t base_ptr, size_t length, const void* host_ptr = nullptr);
   void WriteMemoryReadCached(uint32_t base_ptr, size_t length);
   void WriteMemoryReadCachedNop(uint32_t base_ptr, size_t length);
-  void WriteMemoryWrite(uint32_t base_ptr, size_t length,
-                        const void* host_ptr = nullptr);
+  void WriteMemoryWrite(uint32_t base_ptr, size_t length, const void* host_ptr = nullptr);
   void WriteEdramSnapshot(const void* snapshot);
   void WriteEvent(EventCommand::Type event_type);
   void WriteRegisters(uint32_t first_register, const uint32_t* register_values,
@@ -64,8 +62,8 @@ class TraceWriter {
                       uint32_t gamma_ramp_rw_component);
 
  private:
-  void WriteMemoryCommand(TraceCommandType type, uint32_t base_ptr,
-                          size_t length, const void* host_ptr = nullptr);
+  void WriteMemoryCommand(TraceCommandType type, uint32_t base_ptr, size_t length,
+                          const void* host_ptr = nullptr);
 
   std::set<uint64_t> cached_memory_reads_;
   uint8_t* membase_;
@@ -81,44 +79,34 @@ class TraceWriter {
 
   static constexpr bool is_open() { return false; }
 
-  static constexpr bool Open(const std::filesystem::path& path,
-                             uint32_t title_id) {
-    return false;
-  }
+  static constexpr bool Open(const std::filesystem::path& path, uint32_t title_id) { return false; }
   static constexpr void Flush() {}
   static constexpr void Close() {}
 
-  static constexpr void WritePrimaryBufferStart(uint32_t base_ptr,
-                                                uint32_t count) {}
+  static constexpr void WritePrimaryBufferStart(uint32_t base_ptr, uint32_t count) {}
   static constexpr void WritePrimaryBufferEnd() {}
-  static constexpr void WriteIndirectBufferStart(uint32_t base_ptr,
-                                                 uint32_t count) {}
+  static constexpr void WriteIndirectBufferStart(uint32_t base_ptr, uint32_t count) {}
   static constexpr void WriteIndirectBufferEnd() {}
   static constexpr void WritePacketStart(uint32_t base_ptr, uint32_t count) {}
   static constexpr void WritePacketEnd() {}
   static constexpr void WriteMemoryRead(uint32_t base_ptr, size_t length,
                                         const void* host_ptr = nullptr) {}
-  static constexpr void WriteMemoryReadCached(uint32_t base_ptr,
-                                              size_t length) {}
-  static constexpr void WriteMemoryReadCachedNop(uint32_t base_ptr,
-                                                 size_t length) {}
+  static constexpr void WriteMemoryReadCached(uint32_t base_ptr, size_t length) {}
+  static constexpr void WriteMemoryReadCachedNop(uint32_t base_ptr, size_t length) {}
   static constexpr void WriteMemoryWrite(uint32_t base_ptr, size_t length,
                                          const void* host_ptr = nullptr) {}
   static constexpr void WriteEdramSnapshot(const void* snapshot) {}
   static constexpr void WriteEvent(EventCommand::Type event_type) {}
-  static constexpr void WriteRegisters(uint32_t first_register,
-                                       const uint32_t* register_values,
-                                       uint32_t register_count,
-                                       bool execute_callbacks_on_play) {}
-  static constexpr void WriteGammaRamp(
-      const reg::DC_LUT_30_COLOR* gamma_ramp_256_entry_table,
-      const reg::DC_LUT_PWL_DATA* gamma_ramp_pwl_rgb,
-      uint32_t gamma_ramp_rw_component) {}
+  static constexpr void WriteRegisters(uint32_t first_register, const uint32_t* register_values,
+                                       uint32_t register_count, bool execute_callbacks_on_play) {}
+  static constexpr void WriteGammaRamp(const reg::DC_LUT_30_COLOR* gamma_ramp_256_entry_table,
+                                       const reg::DC_LUT_PWL_DATA* gamma_ramp_pwl_rgb,
+                                       uint32_t gamma_ramp_rw_component) {}
 
 #endif
 };
 
-}  // namespace gpu
-}  // namespace xe
+}  // namespace graphics
+}  // namespace rex
 
 #endif  // XENIA_GPU_TRACE_WRITER_H_

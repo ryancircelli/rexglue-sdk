@@ -93,8 +93,7 @@ struct MetalPipelineRuntimeStats {
 // Derive the shared PipelineRenderingKey from the current register state and
 // the pixel translation (which provides writes_color_targets).
 PipelineRenderingKey ResolvePipelineRenderingKey(
-    const RegisterFile& regs,
-    const MetalShader::MetalTranslation* pixel_translation,
+    const RegisterFile& regs, const MetalShader::MetalTranslation* pixel_translation,
     bool use_fallback_pixel_shader);
 
 class MetalPipelineCache {
@@ -110,26 +109,24 @@ class MetalPipelineCache {
 
   // Initialize shader translation components.  Must be called after
   // construction; returns false on failure.
-  bool InitializeShaderTranslation(bool gamma_render_target_as_unorm8,
-                                   bool msaa_2x_supported,
+  bool InitializeShaderTranslation(bool gamma_render_target_as_unorm8, bool msaa_2x_supported,
                                    uint32_t draw_resolution_scale_x,
                                    uint32_t draw_resolution_scale_y);
 
   // Shader storage (disk cache) lifecycle.
-  void InitializeShaderStorage(const std::filesystem::path& cache_root,
-                               uint32_t title_id, bool blocking);
+  void InitializeShaderStorage(const std::filesystem::path& cache_root, uint32_t title_id,
+                               bool blocking);
   void ShutdownShaderStorage();
   void EndSubmission();
 
   // Load or retrieve a cached shader from the ucode hash.
-  Shader* LoadShader(xenos::ShaderType shader_type,
-                     const uint32_t* host_address, uint32_t dword_count);
+  Shader* LoadShader(xenos::ShaderType shader_type, const uint32_t* host_address,
+                     uint32_t dword_count);
   void SetupShaderBindingLayoutUserUIDs(MetalShader& shader);
 
   // Per-draw shader modification selection (mirrors D3D12 PipelineCache).
   DxbcShaderTranslator::Modification GetCurrentVertexShaderModification(
-      const Shader& shader,
-      Shader::HostVertexShaderType host_vertex_shader_type,
+      const Shader& shader, Shader::HostVertexShaderType host_vertex_shader_type,
       uint32_t interpolator_mask) const;
   // [ssmask] FABLE2_EFFECTS_FOOTPRINT_VARIANT: a Metal-only pixel-shader
   // modification bit (dword 1 bit 28, unused by the DXBC translator): the
@@ -181,7 +178,8 @@ class MetalPipelineCache {
     // on failure so a draw waiting for compilation cannot wait indefinitely.
     std::atomic<bool> creation_complete{false};
     MTL::RenderPipelineState* WaitForCreation() const {
-      if (auto* ready = state.load(std::memory_order_acquire)) return ready;
+      if (auto* ready = state.load(std::memory_order_acquire))
+        return ready;
       creation_complete.wait(false, std::memory_order_acquire);
       return state.load(std::memory_order_acquire);
     }
@@ -225,11 +223,10 @@ class MetalPipelineCache {
 
   // Pipeline state creation -- all accept pre-resolved attachment formats and
   // the shared rendering key derived by ResolvePipelineRenderingKey().
-  PipelineHandle* GetOrCreatePipelineState(
-      MetalShader::MetalTranslation* vertex_translation,
-      MetalShader::MetalTranslation* pixel_translation,
-      const PipelineAttachmentFormats& attachment_formats,
-      const PipelineRenderingKey& rendering_key);
+  PipelineHandle* GetOrCreatePipelineState(MetalShader::MetalTranslation* vertex_translation,
+                                           MetalShader::MetalTranslation* pixel_translation,
+                                           const PipelineAttachmentFormats& attachment_formats,
+                                           const PipelineRenderingKey& rendering_key);
 
   MTL::RenderPipelineState* WaitForPipeline(PipelineHandle* handle);
 
@@ -240,11 +237,12 @@ class MetalPipelineCache {
   readiness::Background ReadinessBackground();
   // [shader-prep] counters for the FABLE2_SHADER_PREP status file (JSON members, no braces).
   std::string ShaderPrepCountsJson();
-  // [bank-prep] FABLE2_SHADER_PREP_BANK (docs/shader-precompile-20261015.md): headless prep only. Loads every
-  // shader of the player's disc shader bank, creates the translations the draw path most likely asks for
-  // (modifications predicted from each shader alone) and translates + MSL-compiles them on background threads,
-  // so the native translations and macOS's Metal cache are warm before the first play. Command-processor
-  // thread; returns the number of translations queued.
+  // [bank-prep] FABLE2_SHADER_PREP_BANK (docs/shader-precompile-20261015.md): headless prep only.
+  // Loads every shader of the player's disc shader bank, creates the translations the draw path
+  // most likely asks for (modifications predicted from each shader alone) and translates +
+  // MSL-compiles them on background threads, so the native translations and macOS's Metal cache are
+  // warm before the first play. Command-processor thread; returns the number of translations
+  // queued.
   size_t StartBankPrecompile(const std::filesystem::path& bank_path);
 
   MetalStageCompileCacheStats GetAndResetStageCompileStats();
@@ -303,8 +301,7 @@ class MetalPipelineCache {
 
   GeometryPipelineState* GetOrCreateGeometryPipelineState(
       MetalShader::MetalTranslation* vertex_translation,
-      MetalShader::MetalTranslation* pixel_translation,
-      GeometryShaderKey geometry_shader_key,
+      MetalShader::MetalTranslation* pixel_translation, GeometryShaderKey geometry_shader_key,
       const PipelineAttachmentFormats& attachment_formats,
       const PipelineRenderingKey& rendering_key);
 
@@ -339,8 +336,7 @@ class MetalPipelineCache {
   // no native translation.
   MTL::RenderPipelineState* GetOrCreateNativePointsPipeline(
       MetalShader::MetalTranslation* vertex_translation,
-      MetalShader::MetalTranslation* pixel_translation,
-      GeometryShaderKey geometry_shader_key,
+      MetalShader::MetalTranslation* pixel_translation, GeometryShaderKey geometry_shader_key,
       const PipelineAttachmentFormats& attachment_formats,
       const PipelineRenderingKey& rendering_key);
 
@@ -352,10 +348,8 @@ class MetalPipelineCache {
   // FABLE2_NATIVE_SHADERS: cache key of the optimized form of a plain
   // pixel-shader metallib; disk-cache lookup (no tools run); and the
   // optimization itself (runs metal-opt + metallib, background threads only).
-  bool LoadOptimizedPixelShader(const std::vector<uint8_t>& plain,
-                                std::vector<uint8_t>* optimized);
-  bool OptimizeGuestPixelShader(uint64_t ucode_hash,
-                                const std::vector<uint8_t>& plain,
+  bool LoadOptimizedPixelShader(const std::vector<uint8_t>& plain, std::vector<uint8_t>* optimized);
+  bool OptimizeGuestPixelShader(uint64_t ucode_hash, const std::vector<uint8_t>& plain,
                                 std::vector<uint8_t>* optimized);
   // FABLE2_NATIVE_FIRST: 1 installed natively, -1 another thread installed
   // the shader meanwhile, 0 not translatable (converter path).
@@ -393,18 +387,15 @@ class MetalPipelineCache {
   void FlushPipelineBinaryArchiveForQuit();
 
  private:
-  bool InitializeShaderStorageInternal(const std::filesystem::path& cache_root,
-                                       uint32_t title_id, bool blocking);
+  bool InitializeShaderStorageInternal(const std::filesystem::path& cache_root, uint32_t title_id,
+                                       bool blocking);
   std::string GetShaderStorageDeviceTag() const;
   std::string GetShaderStorageAbiTag() const;
-  bool InitializePipelineBinaryArchive(
-      const std::filesystem::path& archive_path, size_t set_index);
-  void PrewarmStoredPipelines(
-      const std::vector<MetalPipelineStoredDescription>& descriptions,
-      bool blocking);
-  MetalShader* LoadShader(xenos::ShaderType shader_type,
-                          const uint32_t* host_address, uint32_t dword_count,
-                          uint64_t data_hash);
+  bool InitializePipelineBinaryArchive(const std::filesystem::path& archive_path, size_t set_index);
+  void PrewarmStoredPipelines(const std::vector<MetalPipelineStoredDescription>& descriptions,
+                              bool blocking);
+  MetalShader* LoadShader(xenos::ShaderType shader_type, const uint32_t* host_address,
+                          uint32_t dword_count, uint64_t data_hash);
   MetalPipelineDescription BuildStandardPipelineDescription(
       MetalShader::MetalTranslation* vertex_translation,
       MetalShader::MetalTranslation* pixel_translation,
@@ -417,8 +408,7 @@ class MetalPipelineCache {
       const PipelineRenderingKey& rendering_key) const;
   MetalPipelineDescription BuildGeometryPipelineDescription(
       MetalShader::MetalTranslation* vertex_translation,
-      MetalShader::MetalTranslation* pixel_translation,
-      GeometryShaderKey geometry_shader_key,
+      MetalShader::MetalTranslation* pixel_translation, GeometryShaderKey geometry_shader_key,
       const PipelineAttachmentFormats& attachment_formats,
       const PipelineRenderingKey& rendering_key) const;
   MetalPipelineDescription BuildTessellationPipelineDescription(
@@ -429,15 +419,12 @@ class MetalPipelineCache {
       const PipelineAttachmentFormats& attachment_formats,
       const PipelineRenderingKey& rendering_key) const;
   void QueueStoredShader(MetalShader& shader);
-  void QueueStoredPipeline(const MetalPipelineDescription& description,
-                           uint64_t description_hash);
-  bool EnsureDxbcTranslationReadyLocked(
-      MetalShader::MetalTranslation* translation, const char* stage_name);
-  bool ConvertDxbcToDxil(const std::vector<uint8_t>& dxbc_data,
-                         std::vector<uint8_t>& dxil_data,
+  void QueueStoredPipeline(const MetalPipelineDescription& description, uint64_t description_hash);
+  bool EnsureDxbcTranslationReadyLocked(MetalShader::MetalTranslation* translation,
+                                        const char* stage_name);
+  bool ConvertDxbcToDxil(const std::vector<uint8_t>& dxbc_data, std::vector<uint8_t>& dxil_data,
                          std::string* error_message);
-  MTL::Library* NewLibraryFromBytes(const std::vector<uint8_t>& bytes,
-                                    const char* label);
+  MTL::Library* NewLibraryFromBytes(const std::vector<uint8_t>& bytes, const char* label);
   void RecordLibraryCreation(size_t byte_count, bool success, uint64_t ms);
   void RecordRenderPipelineCreation(bool success, uint64_t ms);
 
@@ -502,14 +489,12 @@ class MetalPipelineCache {
   // Map of texture binding layouts used by shaders, for obtaining UIDs. Keys
   // are XXH3 hashes of layouts, values need manual collision resolution using
   // layout_vector_offset:layout_length of texture_binding_layouts_.
-  std::unordered_multimap<uint64_t, LayoutUID,
-                          rex::hash::IdentityHasher<uint64_t>>
+  std::unordered_multimap<uint64_t, LayoutUID, rex::hash::IdentityHasher<uint64_t>>
       texture_binding_layout_map_;
   // Bindless sampler indices of different shaders, for obtaining layout UIDs.
   std::vector<uint32_t> bindless_sampler_layouts_;
   // Keys are XXH3 hashes of used bindless sampler indices.
-  std::unordered_multimap<uint64_t, LayoutUID,
-                          rex::hash::IdentityHasher<uint64_t>>
+  std::unordered_multimap<uint64_t, LayoutUID, rex::hash::IdentityHasher<uint64_t>>
       bindless_sampler_layout_map_;
 
   class GeneratedStageCache;
@@ -518,8 +503,7 @@ class MetalPipelineCache {
   std::unordered_map<uint64_t, std::unique_ptr<PipelineHandle>> pipeline_cache_;
   std::unordered_map<uint64_t, GeometryPipelineState> geometry_pipeline_cache_;
   PipelineFailureBackoff geometry_pipeline_failures_;
-  std::unordered_map<uint64_t, TessellationPipelineState>
-      tessellation_pipeline_cache_;
+  std::unordered_map<uint64_t, TessellationPipelineState> tessellation_pipeline_cache_;
   std::unique_ptr<GeneratedStageCache> generated_stages_;
   // FABLE2_NATIVE_TESS: pipelines by key, native domain functions by domain
   // translation (null: no native translation). Render thread only.
@@ -527,17 +511,16 @@ class MetalPipelineCache {
   // path and the background prewarm, PrewarmNativeGeometry).
   std::mutex native_geom_mutex_;
   MTL::RenderPipelineState* PublishNativeGeomPipeline(
-      std::unordered_map<uint64_t, MTL::RenderPipelineState*>& map,
-      uint64_t key, MTL::RenderPipelineState* pipeline);
+      std::unordered_map<uint64_t, MTL::RenderPipelineState*>& map, uint64_t key,
+      MTL::RenderPipelineState* pipeline);
   // FABLE2_NATIVE_GEOM_PERSIST: native point/rectangle/tessellation pipelines
   // are recorded in the pipeline list (so the next launch's storage init
   // prewarms them) and built through the binary archive.
-  MTL::RenderPipelineState* NewNativeGeomPipelineState(
-      MTL::RenderPipelineDescriptor* desc, NS::Error** error);
-  void StoreNativeGeomDescription(
-      const MetalPipelineDescription& description,
-      MetalShader::MetalTranslation* vertex_translation,
-      MetalShader::MetalTranslation* pixel_translation);
+  MTL::RenderPipelineState* NewNativeGeomPipelineState(MTL::RenderPipelineDescriptor* desc,
+                                                       NS::Error** error);
+  void StoreNativeGeomDescription(const MetalPipelineDescription& description,
+                                  MetalShader::MetalTranslation* vertex_translation,
+                                  MetalShader::MetalTranslation* pixel_translation);
   std::unordered_map<uint64_t, MTL::RenderPipelineState*> native_tess_pipelines_;
   std::unordered_map<const void*, MTL::Function*> native_ds_functions_;
   // FABLE2_NATIVE_POINTS: pipelines by key; expansion functions by
@@ -565,8 +548,8 @@ class MetalPipelineCache {
   }
   // The folder InitializeShaderStorage uses for this cache root and title
   // (computed without touching storage; [xfer-prewarm] starts before it).
-  std::filesystem::path ShaderStorageTitleRootFor(
-      const std::filesystem::path& cache_root, uint32_t title_id) const;
+  std::filesystem::path ShaderStorageTitleRootFor(const std::filesystem::path& cache_root,
+                                                  uint32_t title_id) const;
 
  private:
   std::filesystem::path artifact_store_path_;
@@ -620,8 +603,7 @@ class MetalPipelineCache {
   // queued pixel shaders (hottest first), then rebuilds the standard
   // pipelines that use them and swaps them in (docs/native-shaders.md).
   void NativeShaderThread();
-  void QueueNativeShaderOptimization(
-      MetalShader::MetalTranslation* translation);
+  void QueueNativeShaderOptimization(MetalShader::MetalTranslation* translation);
   void RegisterNativeShaderHandle(PipelineHandle* handle);
   void NativeShaderSwap(PipelineHandle* handle);
   // FABLE2_NS_EMU_PIPELINES: choose the fragment library for a new emulation
@@ -638,14 +620,10 @@ class MetalPipelineCache {
   // Translates (with optional baked constants) and compiles; the caller owns
   // the returned library and function. False on any failure (logged).
   bool CompileNativeXlate(MetalShader::MetalTranslation* translation,
-                          const std::vector<MslBakedDword>& baked,
-                          MTL::Library** library_out,
-                          MTL::Function** function_out,
-                          std::string* entry_out,
-                          bool expand_points = false,
-                          bool point_coordinates = false,
-                          bool expand_rects = false,
-                          bool points_mesh = false,
+                          const std::vector<MslBakedDword>& baked, MTL::Library** library_out,
+                          MTL::Function** function_out, std::string* entry_out,
+                          bool expand_points = false, bool point_coordinates = false,
+                          bool expand_rects = false, bool points_mesh = false,
                           bool domain_cpu_pattern = false);
   struct NativeXlateConfig {
     bool gamma_render_target_as_unorm8 = false;
@@ -666,12 +644,9 @@ class MetalPipelineCache {
   std::condition_variable ns_cond_;
   std::vector<MetalShader::MetalTranslation*> ns_optimize_queue_;
   std::vector<PipelineHandle*> ns_swap_queue_;
-  std::unordered_map<MetalShader::MetalTranslation*,
-                     std::vector<PipelineHandle*>>
-      ns_handles_;
+  std::unordered_map<MetalShader::MetalTranslation*, std::vector<PipelineHandle*>> ns_handles_;
   std::vector<std::shared_ptr<NsEmuSwap>> ns_emu_swap_queue_;
-  std::unordered_map<MetalShader::MetalTranslation*,
-                     std::vector<std::shared_ptr<NsEmuSwap>>>
+  std::unordered_map<MetalShader::MetalTranslation*, std::vector<std::shared_ptr<NsEmuSwap>>>
       ns_emu_handles_;
   std::atomic<uint64_t> ns_emu_plain_{0};
   std::atomic<uint64_t> ns_emu_swapped_{0};
@@ -688,12 +663,9 @@ class MetalPipelineCache {
   // Builds the pipeline with the translations' best functions (optimized
   // pixel function when available); *out_optimized says which was used.
   MTL::RenderPipelineState* CreatePipelineFromHandle(
-      const PipelineHandle* handle,
-      MetalShader::MetalTranslation* vertex_translation,
-      MetalShader::MetalTranslation* pixel_translation,
-      bool* out_optimized,
-      MTL::Function* fragment_override = nullptr,
-      bool* out_vertex_native = nullptr);
+      const PipelineHandle* handle, MetalShader::MetalTranslation* vertex_translation,
+      MetalShader::MetalTranslation* pixel_translation, bool* out_optimized,
+      MTL::Function* fragment_override = nullptr, bool* out_vertex_native = nullptr);
   // FABLE2_NS_SPECIALIZE background work.
   void QueueSpecialization(MetalShader::MetalTranslation* translation);
   void NsSpecialize(MetalShader::MetalTranslation* translation);
@@ -760,13 +732,11 @@ class MetalPipelineCache {
     PipelineHandle* handle{nullptr};
   };
   struct PipelineCreationPriorityCompare {
-    bool operator()(const PipelineCreationRequest& a,
-                    const PipelineCreationRequest& b) const {
+    bool operator()(const PipelineCreationRequest& a, const PipelineCreationRequest& b) const {
       return a.handle->priority < b.handle->priority;
     }
   };
-  std::priority_queue<PipelineCreationRequest,
-                      std::vector<PipelineCreationRequest>,
+  std::priority_queue<PipelineCreationRequest, std::vector<PipelineCreationRequest>,
                       PipelineCreationPriorityCompare>
       creation_queue_;
   std::mutex creation_request_lock_;
@@ -777,7 +747,7 @@ class MetalPipelineCache {
 };
 
 }  // namespace metal
-}  // namespace gpu
-}  // namespace xe
+}  // namespace graphics
+}  // namespace rex
 
 #endif  // XENIA_GPU_METAL_METAL_PIPELINE_CACHE_H_

@@ -48,7 +48,6 @@ struct SampleRequest {
   std::optional<uint32_t> vol_mag_filter, vol_min_filter, aniso_filter;
 };
 
-std::array<float, 4> Sample(const SampleRequest& request,
-                            const GuestMemory& mem, Diag* diag);
+std::array<float, 4> Sample(const SampleRequest& request, const GuestMemory& mem, Diag* diag);
 
 }  // namespace refxenos::tex

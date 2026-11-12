@@ -45,35 +45,36 @@ DEFINE_bool(metal_pipeline_binary_archive, true,
             "Use MTLBinaryArchive for Metal pipeline compilation caching. "
             "Requires store_shaders and a compatible OS/driver.",
             "Metal");
-DEFINE_string(
-    metal_residency_sets, "auto",
-    "Use Metal residency sets for stable Metal allocations where supported.\n"
-    "  auto: Enable when the runtime exposes MTLResidencySet.\n"
-    "  true: Require creating a residency set, falling back only if creation "
-    "fails.\n"
-    "  false: Use per-encoder useResource/useHeap only.",
-    "Metal");
-DEFINE_bool(
-    metal_root_rebuild_detail_telemetry, false,
-    "Collect expensive Metal root argument rebuild diagnostics, including slot "
-    "change histograms and CBV resource identity details. Leave disabled for "
-    "normal profiling.",
-    "Metal");
+DEFINE_string(metal_residency_sets, "auto",
+              "Use Metal residency sets for stable Metal allocations where supported.\n"
+              "  auto: Enable when the runtime exposes MTLResidencySet.\n"
+              "  true: Require creating a residency set, falling back only if creation "
+              "fails.\n"
+              "  false: Use per-encoder useResource/useHeap only.",
+              "Metal");
+DEFINE_bool(metal_root_rebuild_detail_telemetry, false,
+            "Collect expensive Metal root argument rebuild diagnostics, including slot "
+            "change histograms and CBV resource identity details. Leave disabled for "
+            "normal profiling.",
+            "Metal");
 DEFINE_bool(metal_shader_disk_cache, true,
             "Cache translated Metal shader artifacts and binding metadata in "
             "the packed Metal artifact store.",
             "Metal");
-DEFINE_bool(occlusion_query_log, false,
-            "Log occlusion query lifetime and summary stats.", "GPU");
+DEFINE_bool(occlusion_query_log, false, "Log occlusion query lifetime and summary stats.", "GPU");
 DEFINE_bool(submit_on_primary_buffer_end, true,
             "Submit the command buffer when a PM4 primary buffer ends if it's "
             "possible to submit immediately to try to reduce frame latency.",
             "GPU");
 
-DEFINE_bool(ac6_ground_fix, false, "XeniOS AC6-specific texture workaround (leave disabled for Fable II)", "HACKS");
-DEFINE_bool(half_pixel_offset, true, "Adjust pixel centers between guest and host graphics APIs", "GPU");
-DEFINE_int32(anisotropic_override, -1, "Anisotropic filtering override (-1 follows the game)", "GPU");
-DEFINE_bool(gpu_3d_to_2d_texture, true, "Handle 3D textures sampled as 2D using the first guest slice", "GPU");
+DEFINE_bool(ac6_ground_fix, false,
+            "XeniOS AC6-specific texture workaround (leave disabled for Fable II)", "HACKS");
+DEFINE_bool(half_pixel_offset, true, "Adjust pixel centers between guest and host graphics APIs",
+            "GPU");
+DEFINE_int32(anisotropic_override, -1, "Anisotropic filtering override (-1 follows the game)",
+             "GPU");
+DEFINE_bool(gpu_3d_to_2d_texture, true,
+            "Handle 3D textures sampled as 2D using the first guest slice", "GPU");
 
 // ---------------------------------------------------------------------------
 // Settings that were FABLE2_* environment variables (README.md, "Settings").
@@ -100,8 +101,7 @@ DEFINE_int32(metal_native_points, 2,
              "2 = mesh function (vertex shader once per point).",
              "Metal");
 DEFINE_bool(metal_ns_specialize, true,
-            "Specialize hot optimized pixel shaders by baking their constants.",
-            "Metal");
+            "Specialize hot optimized pixel shaders by baking their constants.", "Metal");
 DEFINE_string(metal_ns_cache_toolchain, "",
               "Toolchain hash (hex) of a bundled native-shader cache. When "
               "metal-opt/metallib are missing, optimized shaders then come "
@@ -121,8 +121,8 @@ DEFINE_string(metal_shader_prep, "",
               "(status file) warms every shader and pipeline cache, saves them "
               "and exits without running the game. Empty or '0' = off.",
               "Metal");
-DEFINE_double(metal_shader_prep_timeout_s, 1800.0,
-              "Guard timeout of metal_shader_prep, seconds.", "Metal");
+DEFINE_double(metal_shader_prep_timeout_s, 1800.0, "Guard timeout of metal_shader_prep, seconds.",
+              "Metal");
 DEFINE_string(metal_res_scale, "",
               "Draw resolution scale: empty = native 1x, 1 to 3 = both axes, "
               "'cvar' = follow draw_resolution_scale_x/y.",
@@ -131,8 +131,7 @@ DEFINE_bool(metal_resolve_to_texture, true,
             "Resolve render targets straight into textures instead of through "
             "guest memory where possible.",
             "Metal");
-DEFINE_bool(metal_tile_resolve, true,
-            "Run colour resolves as tile functions inside the draw pass.",
+DEFINE_bool(metal_tile_resolve, true, "Run colour resolves as tile functions inside the draw pass.",
             "Metal");
 DEFINE_bool(metal_ssm_merge, false,
             "Merge stencil-only alias clear transfers into the next draw pass. "
@@ -142,14 +141,13 @@ DEFINE_bool(metal_occlusion_real, true,
             "Answer guest occlusion queries with real Metal visibility results; "
             "off reports a fixed 1000 samples passed.",
             "Metal");
-DEFINE_bool(metal_vsync_phase_lock, true,
-            "Phase-lock presentation to the display refresh.", "Metal");
+DEFINE_bool(metal_vsync_phase_lock, true, "Phase-lock presentation to the display refresh.",
+            "Metal");
 DEFINE_int32(metal_present_drawables, 2,
              "CAMetalLayer maximumDrawableCount: 2 (lower latency) or 3 "
              "(0 also means 3).",
              "Metal");
-DEFINE_bool(metal_retina, true,
-            "Render at the display's backing scale (Retina); off uses scale 1.",
+DEFINE_bool(metal_retina, true, "Render at the display's backing scale (Retina); off uses scale 1.",
             "Metal");
 DEFINE_string(metal_title_quirks, "",
               "Per-title workarounds to enable, comma separated. 'fable2' = "
@@ -175,7 +173,8 @@ bool MetalTitleQuirk(const char* quirk) {
     std::string token;
     for (char c : REXCVAR_GET(metal_title_quirks) + ",") {
       if (c == ',' || c == ' ' || c == ';') {
-        if (!token.empty()) list.push_back(std::move(token));
+        if (!token.empty())
+          list.push_back(std::move(token));
         token.clear();
       } else {
         token += char(std::tolower(static_cast<unsigned char>(c)));
@@ -183,7 +182,8 @@ bool MetalTitleQuirk(const char* quirk) {
     }
     if (!list.empty()) {
       std::string joined;
-      for (const auto& q : list) joined += (joined.empty() ? "" : ",") + q;
+      for (const auto& q : list)
+        joined += (joined.empty() ? "" : ",") + q;
       REXLOG_INFO("[title-quirks] metal_title_quirks = {}", joined);
     }
     return list;
@@ -228,8 +228,10 @@ void ApplyLegacyMetalEnv() {
   };
   for (const Entry& e : kEntries) {
     const char* v = std::getenv(e.legacy);  // getenv-ok: once, at plugin creation
-    if (!v || !*v) continue;
-    if (rex::cvar::GetFlagSource(e.cvar) != rex::cvar::Source::kDefault) continue;
+    if (!v || !*v)
+      continue;
+    if (rex::cvar::GetFlagSource(e.cvar) != rex::cvar::Source::kDefault)
+      continue;
     std::string value = v;
     switch (e.kind) {
       case Kind::kRaw:
@@ -248,8 +250,8 @@ void ApplyLegacyMetalEnv() {
         break;
     }
     if (rex::cvar::SetFlagByName(e.cvar, value)) {
-      REXLOG_INFO("[settings] {}={} -> {} = {} (legacy name; prefer the cvar)", e.legacy, v,
-                  e.cvar, value);
+      REXLOG_INFO("[settings] {}={} -> {} = {} (legacy name; prefer the cvar)", e.legacy, v, e.cvar,
+                  value);
     } else {
       REXLOG_WARN("[settings] {}={} ignored: not a valid {}", e.legacy, v, e.cvar);
     }

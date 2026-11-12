@@ -9,8 +9,9 @@ class ScopedAutoreleasePool {
   ~ScopedAutoreleasePool() { objc_autoreleasePoolPop(pool_); }
   ScopedAutoreleasePool(const ScopedAutoreleasePool&) = delete;
   ScopedAutoreleasePool& operator=(const ScopedAutoreleasePool&) = delete;
+
  private:
   void* pool_;
 };
-}
+}  // namespace rex
 #define XE_SCOPED_AUTORELEASE_POOL(name) rex::ScopedAutoreleasePool _metal_autorelease_pool(name)

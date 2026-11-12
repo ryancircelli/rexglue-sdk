@@ -38,19 +38,15 @@ namespace metal {
 
 class MetalProvider;
 
-class MetalGuestOutputRefreshContext final
-    : public Presenter::GuestOutputRefreshContext {
+class MetalGuestOutputRefreshContext final : public Presenter::GuestOutputRefreshContext {
  public:
   MetalGuestOutputRefreshContext(bool& is_8bpc_out_ref, id resource)
-      : Presenter::GuestOutputRefreshContext(is_8bpc_out_ref),
-        resource_(resource) {}
+      : Presenter::GuestOutputRefreshContext(is_8bpc_out_ref), resource_(resource) {}
 
   // The guest output Metal texture that the refresher should write to.
   // Initial state is undefined, refresher must write all pixels.
   id resource_uav_capable() const { return resource_; }
-  void SetSubmissionId(uint64_t submission_id) {
-    submission_id_ = submission_id;
-  }
+  void SetSubmissionId(uint64_t submission_id) { submission_id_ = submission_id; }
   uint64_t submission_id() const { return submission_id_; }
 
  private:
@@ -69,9 +65,7 @@ class MetalUIDrawContext final : public UIDrawContext {
         render_encoder_(render_encoder) {}
 
   id command_buffer() const { return command_buffer_; }  // id<MTLCommandBuffer>
-  id render_encoder() const {
-    return render_encoder_;
-  }  // id<MTLRenderCommandEncoder>
+  id render_encoder() const { return render_encoder_; }  // id<MTLRenderCommandEncoder>
 
  private:
   id command_buffer_;  // id<MTLCommandBuffer>
@@ -80,8 +74,7 @@ class MetalUIDrawContext final : public UIDrawContext {
 
 class MetalPresenter : public Presenter {
  public:
-  MetalPresenter(MetalProvider* provider,
-                 HostGpuLossCallback host_gpu_loss_callback);
+  MetalPresenter(MetalProvider* provider, HostGpuLossCallback host_gpu_loss_callback);
   ~MetalPresenter() override;
 
   bool Initialize();
@@ -100,12 +93,12 @@ class MetalPresenter : public Presenter {
   // layer switch to framebufferOnly = NO (restored right after), so it costs nothing otherwise.
   // Call from a non-UI thread; waits for the next paint.
   bool CaptureScreen(RawImage& image_out, uint32_t timeout_ms, uint64_t* frame_id_out);
-  // Test control `capture at <frame> ...` (frame-matched parity, docs/readiness.md): the guest output of
-  // exactly these guest frames, read back on the GPU thread as each frame's output is refreshed, so
-  // arms of an A/B capture the same guest moments. Returns 1 when all were captured, 0 on timeout,
-  // -1 when the first frame had already passed, another request is pending or a readback failed
-  // (captures_out holds what was captured; *current_frame_out = the last frame seen). Call from a
-  // non-UI, non-GPU thread.
+  // Test control `capture at <frame> ...` (frame-matched parity, docs/readiness.md): the guest
+  // output of exactly these guest frames, read back on the GPU thread as each frame's output is
+  // refreshed, so arms of an A/B capture the same guest moments. Returns 1 when all were captured,
+  // 0 on timeout, -1 when the first frame had already passed, another request is pending or a
+  // readback failed (captures_out holds what was captured; *current_frame_out = the last frame
+  // seen). Call from a non-UI, non-GPU thread.
   struct FrameCapture {
     RawImage image;
     CaptureTiming timing;
@@ -114,29 +107,27 @@ class MetalPresenter : public Presenter {
     bool ok = false;
   };
   int CaptureGuestOutputAtFrames(const std::vector<uint64_t>& target_frames, uint32_t timeout_ms,
-                                 std::vector<FrameCapture>& captures_out, uint64_t* current_frame_out);
+                                 std::vector<FrameCapture>& captures_out,
+                                 uint64_t* current_frame_out);
 
   bool CopyTextureToGuestOutput(MTL::Texture* source_texture, id dest_texture,
-                                uint32_t source_width, uint32_t source_height,
-                                bool force_swap_rb, bool use_pwl_gamma_ramp,
-                                uint64_t* submission_out = nullptr);
+                                uint32_t source_width, uint32_t source_height, bool force_swap_rb,
+                                bool use_pwl_gamma_ramp, uint64_t* submission_out = nullptr);
 
-  bool UpdateGammaRamp(const void* table_data, size_t table_bytes,
-                       const void* pwl_data, size_t pwl_bytes);
+  bool UpdateGammaRamp(const void* table_data, size_t table_bytes, const void* pwl_data,
+                       size_t pwl_bytes);
 
  protected:
   PaintResult PaintAndPresentImpl(bool execute_ui_drawers) override;
 
   SurfacePaintConnectResult ConnectOrReconnectPaintingToSurfaceFromUIThread(
-      Surface& new_surface, uint32_t new_surface_width,
-      uint32_t new_surface_height, bool was_paintable,
-      bool& is_vsync_implicit_out) override;
+      Surface& new_surface, uint32_t new_surface_width, uint32_t new_surface_height,
+      bool was_paintable, bool& is_vsync_implicit_out) override;
   void DisconnectPaintingFromSurfaceFromUIThreadImpl() override;
-  bool RefreshGuestOutputImpl(
-      uint32_t mailbox_index, uint32_t frontbuffer_width,
-      uint32_t frontbuffer_height,
-      std::function<bool(GuestOutputRefreshContext& context)> refresher,
-      bool& is_8bpc_out_ref) override;
+  bool RefreshGuestOutputImpl(uint32_t mailbox_index, uint32_t frontbuffer_width,
+                              uint32_t frontbuffer_height,
+                              std::function<bool(GuestOutputRefreshContext& context)> refresher,
+                              bool& is_8bpc_out_ref) override;
 
  private:
   // Metal's blit encoder copyFromTexture:toTexture requires identical pixel
@@ -162,14 +153,14 @@ class MetalPresenter : public Presenter {
     MTL::TextureSwizzleChannels swizzle = {};
   };
 
-  MTL::Texture* GetCachedPresenterPixelFormatView(
-      PresenterTextureViewCacheEntry& entry, MTL::Texture* parent,
-      MTL::PixelFormat pixel_format);
-  MTL::Texture* GetCachedPresenterTextureView(
-      PresenterTextureViewCacheEntry& entry, MTL::Texture* parent,
-      MTL::PixelFormat pixel_format, MTL::TextureType texture_type,
-      NS::Range level_range, NS::Range slice_range,
-      MTL::TextureSwizzleChannels swizzle);
+  MTL::Texture* GetCachedPresenterPixelFormatView(PresenterTextureViewCacheEntry& entry,
+                                                  MTL::Texture* parent,
+                                                  MTL::PixelFormat pixel_format);
+  MTL::Texture* GetCachedPresenterTextureView(PresenterTextureViewCacheEntry& entry,
+                                              MTL::Texture* parent, MTL::PixelFormat pixel_format,
+                                              MTL::TextureType texture_type, NS::Range level_range,
+                                              NS::Range slice_range,
+                                              MTL::TextureSwizzleChannels swizzle);
   void ReleaseCachedPresenterTextureView(PresenterTextureViewCacheEntry& entry);
   void ReleaseCachedPresenterTextureViews();
 
@@ -187,18 +178,16 @@ class MetalPresenter : public Presenter {
   std::mutex screen_capture_mutex_;
   std::atomic<bool> screen_capture_pending_{false};
   bool screen_capture_restore_fbo_ = false;  // UI thread
-  id command_queue_ = nullptr;  // id<MTLCommandQueue>
-  id shared_event_ = nullptr;   // id<MTLSharedEvent>
+  id command_queue_ = nullptr;               // id<MTLCommandQueue>
+  id shared_event_ = nullptr;                // id<MTLSharedEvent>
 
   // Compute pipeline state used to convert/copy from swap formats to the
   // RGBA8 guest output texture.
-  id copy_texture_convert_pipeline_2d_ =
-      nullptr;  // id<MTLComputePipelineState>
-  id copy_texture_convert_pipeline_2d_array_ =
-      nullptr;                               // id<MTLComputePipelineState>
-  id apply_gamma_table_pipeline_ = nullptr;  // id<MTLComputePipelineState>
-  id apply_gamma_pwl_pipeline_ = nullptr;    // id<MTLComputePipelineState>
-  id gamma_output_texture_ = nullptr;        // id<MTLTexture>
+  id copy_texture_convert_pipeline_2d_ = nullptr;        // id<MTLComputePipelineState>
+  id copy_texture_convert_pipeline_2d_array_ = nullptr;  // id<MTLComputePipelineState>
+  id apply_gamma_table_pipeline_ = nullptr;              // id<MTLComputePipelineState>
+  id apply_gamma_pwl_pipeline_ = nullptr;                // id<MTLComputePipelineState>
+  id gamma_output_texture_ = nullptr;                    // id<MTLTexture>
   uint32_t gamma_output_width_ = 0;
   uint32_t gamma_output_height_ = 0;
   id gamma_ramp_buffer_ = nullptr;         // id<MTLBuffer>
@@ -210,10 +199,9 @@ class MetalPresenter : public Presenter {
   PresenterTextureViewCacheEntry linear_presenter_view_;
   PresenterTextureViewCacheEntry array_presenter_view_;
   PresenterTextureViewCacheEntry swizzle_presenter_view_;
-  id guest_output_pipeline_bilinear_ = nullptr;  // id<MTLRenderPipelineState>
-  id guest_output_pipeline_bilinear_dither_ =
-      nullptr;                         // id<MTLRenderPipelineState>
-  id guest_output_sampler_ = nullptr;  // id<MTLSamplerState>
+  id guest_output_pipeline_bilinear_ = nullptr;         // id<MTLRenderPipelineState>
+  id guest_output_pipeline_bilinear_dither_ = nullptr;  // id<MTLRenderPipelineState>
+  id guest_output_sampler_ = nullptr;                   // id<MTLSamplerState>
   uint32_t guest_output_pipeline_format_ = 0;
 
   id metalfx_scaler_ = nullptr;          // id<MTLFXSpatialScaler>
@@ -224,8 +212,10 @@ class MetalPresenter : public Presenter {
   uint32_t metalfx_output_height_ = 0;
   uint32_t metalfx_color_format_ = 0;
   uint32_t metalfx_color_processing_mode_ = 0;
-  uint64_t fi_last_frame_id_ = 0;  // [frame-interp] last guest frame handed to frame_interp::Process (UI thread)
-  bool fi_layer_on_ = false;       // [frame-interp] the last paint went through the present thread (UI thread)
+  uint64_t fi_last_frame_id_ =
+      0;  // [frame-interp] last guest frame handed to frame_interp::Process (UI thread)
+  bool fi_layer_on_ =
+      false;  // [frame-interp] the last paint went through the present thread (UI thread)
   float surface_scale_ = 1.0f;
   // CAMetalLayer contentsScale: the window's backing scale (FABLE2_RETINA, default on) or 1.
   float layer_contents_scale_ = 1.0f;
@@ -247,6 +237,6 @@ class MetalPresenter : public Presenter {
 
 }  // namespace metal
 }  // namespace ui
-}  // namespace xe
+}  // namespace rex
 
 #endif  // XENIA_UI_METAL_METAL_PRESENTER_H_

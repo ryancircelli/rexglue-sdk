@@ -171,7 +171,7 @@ struct GammaRampCommand {
   uint32_t encoded_length;
 };
 
-}  // namespace gpu
-}  // namespace xe
+}  // namespace graphics
+}  // namespace rex
 
 #endif  // XENIA_GPU_TRACE_PROTOCOL_H_

@@ -48,31 +48,23 @@ union GeometryShaderKey {
   GeometryShaderKey() : key(0) { static_assert_size(*this, sizeof(key)); }
 
   struct Hasher {
-    size_t operator()(const GeometryShaderKey& key) const {
-      return std::hash<uint32_t>{}(key.key);
-    }
+    size_t operator()(const GeometryShaderKey& key) const { return std::hash<uint32_t>{}(key.key); }
   };
-  bool operator==(const GeometryShaderKey& other_key) const {
-    return key == other_key.key;
-  }
-  bool operator!=(const GeometryShaderKey& other_key) const {
-    return !(*this == other_key);
-  }
+  bool operator==(const GeometryShaderKey& other_key) const { return key == other_key.key; }
+  bool operator!=(const GeometryShaderKey& other_key) const { return !(*this == other_key); }
 };
 
 // Builds the geometry-shader cache key from the vertex/pixel shader
 // modifications. Returns false if no geometry shader is needed for the type.
-bool GetGeometryShaderKey(
-    PipelineGeometryShader geometry_shader_type,
-    DxbcShaderTranslator::Modification vertex_shader_modification,
-    DxbcShaderTranslator::Modification pixel_shader_modification,
-    GeometryShaderKey& key_out);
+bool GetGeometryShaderKey(PipelineGeometryShader geometry_shader_type,
+                          DxbcShaderTranslator::Modification vertex_shader_modification,
+                          DxbcShaderTranslator::Modification pixel_shader_modification,
+                          GeometryShaderKey& key_out);
 
 // Generates the DXBC geometry shader bytecode for the given key.
-void CreateDxbcGeometryShader(GeometryShaderKey key,
-                              std::vector<uint32_t>& shader_out);
+void CreateDxbcGeometryShader(GeometryShaderKey key, std::vector<uint32_t>& shader_out);
 
-}  // namespace gpu
-}  // namespace xe
+}  // namespace graphics
+}  // namespace rex
 
 #endif  // XENIA_GPU_DXBC_GEOMETRY_SHADER_H_

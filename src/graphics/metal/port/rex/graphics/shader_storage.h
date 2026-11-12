@@ -65,8 +65,7 @@ constexpr uint32_t kPipelineStorageMagic = 0x53504558;
 //     local/               - Files specific to this machine/driver
 //       {TITLE_ID}.*.bin   - Driver-specific pipeline cache
 
-inline std::filesystem::path GetShaderStorageRoot(
-    const std::filesystem::path& cache_root) {
+inline std::filesystem::path GetShaderStorageRoot(const std::filesystem::path& cache_root) {
   return cache_root / "shaders";
 }
 
@@ -75,20 +74,17 @@ inline std::filesystem::path GetShaderStorageShareableRoot(
   return GetShaderStorageRoot(cache_root) / "shareable";
 }
 
-inline std::filesystem::path GetShaderStorageLocalRoot(
-    const std::filesystem::path& cache_root) {
+inline std::filesystem::path GetShaderStorageLocalRoot(const std::filesystem::path& cache_root) {
   return GetShaderStorageRoot(cache_root) / "local";
 }
 
-inline std::filesystem::path GetShaderStorageFilePath(
-    const std::filesystem::path& cache_root, uint32_t title_id) {
-  return GetShaderStorageShareableRoot(cache_root) /
-         fmt::format("{:08X}.xsh", title_id);
+inline std::filesystem::path GetShaderStorageFilePath(const std::filesystem::path& cache_root,
+                                                      uint32_t title_id) {
+  return GetShaderStorageShareableRoot(cache_root) / fmt::format("{:08X}.xsh", title_id);
 }
 
 // Ensures shader storage directories exist. Returns true on success.
-inline bool EnsureShaderStorageDirectoriesExist(
-    const std::filesystem::path& cache_root) {
+inline bool EnsureShaderStorageDirectoriesExist(const std::filesystem::path& cache_root) {
   std::error_code error_code;
   auto shareable_root = GetShaderStorageShareableRoot(cache_root);
   if (!std::filesystem::exists(shareable_root)) {
@@ -110,14 +106,12 @@ REXPACKEDSTRUCT(ShaderStorageFileHeader, {
 });
 
 // Validates the shader storage file header. Returns true if valid.
-inline bool ValidateShaderStorageHeader(FILE* file,
-                                        ShaderStorageFileHeader& header_out) {
+inline bool ValidateShaderStorageHeader(FILE* file, ShaderStorageFileHeader& header_out) {
   if (!fread(&header_out, sizeof(header_out), 1, file)) {
     return false;
   }
   return header_out.magic == kShaderStorageMagic &&
-         rex::byte_swap(header_out.version_swapped) ==
-             ShaderStoredHeader::kVersion;
+         rex::byte_swap(header_out.version_swapped) == ShaderStoredHeader::kVersion;
 }
 
 // Writes a new shader storage file header.
@@ -147,23 +141,20 @@ inline uint64_t ReadShaderEntries(FILE* file, Callback&& callback) {
     if (!fread(&shader_header, sizeof(shader_header), 1, file)) {
       break;
     }
-    size_t ucode_byte_count =
-        shader_header.ucode_dword_count * sizeof(uint32_t);
+    size_t ucode_byte_count = shader_header.ucode_dword_count * sizeof(uint32_t);
     ucode_dwords.resize(shader_header.ucode_dword_count);
-    if (shader_header.ucode_dword_count &&
-        !fread(ucode_dwords.data(), ucode_byte_count, 1, file)) {
+    if (shader_header.ucode_dword_count && !fread(ucode_dwords.data(), ucode_byte_count, 1, file)) {
       break;
     }
-    uint64_t ucode_data_hash =
-        XXH3_64bits(ucode_dwords.data(), ucode_byte_count);
+    uint64_t ucode_data_hash = XXH3_64bits(ucode_dwords.data(), ucode_byte_count);
     if (shader_header.ucode_data_hash != ucode_data_hash) {
       // Validation failed - corrupted entry.
       break;
     }
     valid_bytes += sizeof(shader_header) + ucode_byte_count;
 
-    if (!callback(shader_header.type, ucode_dwords.data(),
-                  shader_header.ucode_dword_count, ucode_data_hash)) {
+    if (!callback(shader_header.type, ucode_dwords.data(), shader_header.ucode_dword_count,
+                  ucode_data_hash)) {
       break;
     }
   }
@@ -199,8 +190,8 @@ class ShaderStorageWriter {
   // Callback for translating shaders. Called with the set of
   // (ucode_hash, modification) pairs that need translation.
   // Implementation should handle parallel translation internally.
-  using TranslateCallback = std::function<void(
-      const std::set<std::pair<uint64_t, uint64_t>>& translations_needed)>;
+  using TranslateCallback =
+      std::function<void(const std::set<std::pair<uint64_t, uint64_t>>& translations_needed)>;
 
   ShaderStorageWriter() = default;
   ~ShaderStorageWriter() { ShutdownShaderStorage(); }
@@ -211,11 +202,10 @@ class ShaderStorageWriter {
 
   // Opens files, loads shaders, triggers translation, starts write thread.
   // Caller must call ShutdownShaderStorage() first if re-initializing.
-  bool InitializeShaderStorage(
-      const std::filesystem::path& cache_root, uint32_t title_id,
-      const PipelineStorageConfig& pipeline_config,
-      ShaderLoadCallback load_shader, TranslateCallback translate_shaders,
-      std::vector<TPipelineStoredDescription>& pipeline_descriptions_out) {
+  bool InitializeShaderStorage(const std::filesystem::path& cache_root, uint32_t title_id,
+                               const PipelineStorageConfig& pipeline_config,
+                               ShaderLoadCallback load_shader, TranslateCallback translate_shaders,
+                               std::vector<TPipelineStoredDescription>& pipeline_descriptions_out) {
     cache_root_ = cache_root;
     title_id_ = title_id;
 
@@ -223,16 +213,14 @@ class ShaderStorageWriter {
       return false;
     }
 
-    auto shader_storage_shareable_root =
-        GetShaderStorageShareableRoot(cache_root);
+    auto shader_storage_shareable_root = GetShaderStorageShareableRoot(cache_root);
     ++storage_index_;
 
     // Open pipeline storage file.
     auto pipeline_storage_file_path =
         shader_storage_shareable_root /
         fmt::format("{:08X}{}", title_id, pipeline_config.file_suffix);
-    pipeline_storage_file_ =
-        rex::filesystem::OpenFile(pipeline_storage_file_path, "a+b");
+    pipeline_storage_file_ = rex::filesystem::OpenFile(pipeline_storage_file_path, "a+b");
     if (!pipeline_storage_file_) {
       REXLOG_ERROR(
           "Failed to open the pipeline storage file for writing, persistent "
@@ -245,38 +233,31 @@ class ShaderStorageWriter {
     // deciding whether an existing cache is invalid and may be truncated.
     rex::filesystem::Seek(pipeline_storage_file_, 0, SEEK_SET);
     // Read pipeline descriptions.
-    const uint32_t pipeline_storage_version_swapped =
-        rex::byte_swap(pipeline_config.version);
+    const uint32_t pipeline_storage_version_swapped = rex::byte_swap(pipeline_config.version);
     PipelineStorageFileHeader pipeline_header;
-    if (fread(&pipeline_header, sizeof(pipeline_header), 1,
-              pipeline_storage_file_) &&
+    if (fread(&pipeline_header, sizeof(pipeline_header), 1, pipeline_storage_file_) &&
         pipeline_header.magic == kPipelineStorageMagic &&
         pipeline_header.magic_api == pipeline_config.api_magic &&
         pipeline_header.version_swapped == pipeline_storage_version_swapped) {
       // Valid header, read pipeline descriptions.
       rex::filesystem::Seek(pipeline_storage_file_, 0, SEEK_END);
-      int64_t pipeline_storage_told_end =
-          rex::filesystem::Tell(pipeline_storage_file_);
+      int64_t pipeline_storage_told_end = rex::filesystem::Tell(pipeline_storage_file_);
       size_t pipeline_storage_told_count =
           size_t(pipeline_storage_told_end >= int64_t(sizeof(pipeline_header))
-                     ? (uint64_t(pipeline_storage_told_end) -
-                        sizeof(pipeline_header)) /
+                     ? (uint64_t(pipeline_storage_told_end) - sizeof(pipeline_header)) /
                            sizeof(TPipelineStoredDescription)
                      : 0);
       if (pipeline_storage_told_count) {
-        rex::filesystem::Seek(pipeline_storage_file_,
-                             int64_t(sizeof(pipeline_header)), SEEK_SET);
+        rex::filesystem::Seek(pipeline_storage_file_, int64_t(sizeof(pipeline_header)), SEEK_SET);
         pipeline_descriptions_out.resize(pipeline_storage_told_count);
         pipeline_descriptions_out.resize(
-            fread(pipeline_descriptions_out.data(),
-                  sizeof(TPipelineStoredDescription),
+            fread(pipeline_descriptions_out.data(), sizeof(TPipelineStoredDescription),
                   pipeline_storage_told_count, pipeline_storage_file_));
         // Validate each description's hash.
         size_t valid_count = 0;
         for (size_t i = 0; i < pipeline_descriptions_out.size(); ++i) {
           const TPipelineStoredDescription& desc = pipeline_descriptions_out[i];
-          if (XXH3_64bits(&desc.description, sizeof(desc.description)) !=
-              desc.description_hash) {
+          if (XXH3_64bits(&desc.description, sizeof(desc.description)) != desc.description_hash) {
             break;
           }
           ++valid_count;
@@ -287,16 +268,14 @@ class ShaderStorageWriter {
       rex::filesystem::TruncateStdioFile(
           pipeline_storage_file_,
           uint64_t(sizeof(pipeline_header) +
-                   sizeof(TPipelineStoredDescription) *
-                       pipeline_descriptions_out.size()));
+                   sizeof(TPipelineStoredDescription) * pipeline_descriptions_out.size()));
     } else {
       // Write new header.
       rex::filesystem::TruncateStdioFile(pipeline_storage_file_, 0);
       pipeline_header.magic = kPipelineStorageMagic;
       pipeline_header.magic_api = pipeline_config.api_magic;
       pipeline_header.version_swapped = pipeline_storage_version_swapped;
-      if (fwrite(&pipeline_header, sizeof(pipeline_header), 1,
-                 pipeline_storage_file_) != 1) {
+      if (fwrite(&pipeline_header, sizeof(pipeline_header), 1, pipeline_storage_file_) != 1) {
         REXLOG_ERROR("Failed to write pipeline storage header");
         fclose(pipeline_storage_file_);
         pipeline_storage_file_ = nullptr;
@@ -305,10 +284,8 @@ class ShaderStorageWriter {
     }
 
     // Open shader storage file.
-    auto shader_storage_file_path =
-        GetShaderStorageFilePath(cache_root, title_id);
-    shader_storage_file_ =
-        rex::filesystem::OpenFile(shader_storage_file_path, "a+b");
+    auto shader_storage_file_path = GetShaderStorageFilePath(cache_root, title_id);
+    shader_storage_file_ = rex::filesystem::OpenFile(shader_storage_file_path, "a+b");
     if (!shader_storage_file_) {
       REXLOG_ERROR(
           "Failed to open the guest shader storage file for writing, "
@@ -325,18 +302,15 @@ class ShaderStorageWriter {
     ShaderStorageFileHeader shader_header;
     if (ValidateShaderStorageHeader(shader_storage_file_, shader_header)) {
       uint64_t shader_storage_valid_bytes = ReadShaderEntries(
-          shader_storage_file_,
-          [&](xenos::ShaderType type, const uint32_t* ucode_dwords,
-              uint32_t ucode_dword_count, uint64_t ucode_data_hash) {
-            if (load_shader(type, ucode_dwords, ucode_dword_count,
-                            ucode_data_hash)) {
+          shader_storage_file_, [&](xenos::ShaderType type, const uint32_t* ucode_dwords,
+                                    uint32_t ucode_dword_count, uint64_t ucode_data_hash) {
+            if (load_shader(type, ucode_dwords, ucode_dword_count, ucode_data_hash)) {
               ++shaders_loaded;
               return true;
             }
             return false;
           });
-      rex::filesystem::TruncateStdioFile(shader_storage_file_,
-                                        shader_storage_valid_bytes);
+      rex::filesystem::TruncateStdioFile(shader_storage_file_, shader_storage_valid_bytes);
     } else {
       // Write new header.
       rex::filesystem::TruncateStdioFile(shader_storage_file_, 0);
@@ -362,7 +336,7 @@ class ShaderStorageWriter {
       }
     }
     REXLOG_INFO("Loaded {} pipeline descriptions, {} shader translations needed",
-           pipeline_descriptions_out.size(), translations_needed.size());
+                pipeline_descriptions_out.size(), translations_needed.size());
 
     // Translate shaders (callback handles parallel translation).
     if (!translations_needed.empty() && translate_shaders) {
@@ -371,8 +345,7 @@ class ShaderStorageWriter {
 
     // Start the write thread.
     storage_write_thread_shutdown_ = false;
-    storage_write_thread_ =
-        rex::thread::Thread::Create({}, [this]() { WriteThread(); });
+    storage_write_thread_ = rex::thread::Thread::Create({}, [this]() { WriteThread(); });
     storage_write_thread_->set_name("Shader Storage Writer");
 
     return true;
@@ -497,8 +470,7 @@ class ShaderStorageWriter {
           flush_shaders = true;
         }
         if (!storage_write_pipeline_queue_.empty()) {
-          std::memcpy(&pipeline_description,
-                      &storage_write_pipeline_queue_.front(),
+          std::memcpy(&pipeline_description, &storage_write_pipeline_queue_.front(),
                       sizeof(pipeline_description));
           storage_write_pipeline_queue_.pop_front();
           write_pipeline = true;
@@ -517,18 +489,16 @@ class ShaderStorageWriter {
         shader_header.ucode_dword_count = shader->ucode_dword_count();
         shader_header.type = shader->type();
         assert_not_null(shader_storage_file_);
-        if (fwrite(&shader_header, sizeof(shader_header), 1,
-                   shader_storage_file_) != 1) {
+        if (fwrite(&shader_header, sizeof(shader_header), 1, shader_storage_file_) != 1) {
           REXLOG_ERROR("Failed to write shader header to storage");
         } else if (shader_header.ucode_dword_count) {
           ucode_guest_endian.resize(shader_header.ucode_dword_count);
           // Need to swap because the hash is calculated for the shader with
           // guest endianness.
           rex::memory::copy_and_swap(ucode_guest_endian.data(), shader->ucode_dwords(),
-                            shader_header.ucode_dword_count);
-          if (fwrite(ucode_guest_endian.data(),
-                     shader_header.ucode_dword_count * sizeof(uint32_t), 1,
-                     shader_storage_file_) != 1) {
+                                     shader_header.ucode_dword_count);
+          if (fwrite(ucode_guest_endian.data(), shader_header.ucode_dword_count * sizeof(uint32_t),
+                     1, shader_storage_file_) != 1) {
             REXLOG_ERROR("Failed to write shader ucode to storage");
           }
         }
@@ -561,7 +531,7 @@ class ShaderStorageWriter {
   bool storage_write_thread_shutdown_ = false;
 };
 
-}  // namespace gpu
-}  // namespace xe
+}  // namespace graphics
+}  // namespace rex
 
 #endif  // XENIA_GPU_SHADER_STORAGE_H_

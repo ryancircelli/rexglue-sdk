@@ -30,14 +30,7 @@ class MetalStageCompileCache;
 constexpr uint32_t kMetalRootSignatureAbiVersion = 2;
 
 // Shader stage for Metal conversion
-enum class MetalShaderStage {
-  kVertex,
-  kFragment,
-  kGeometry,
-  kCompute,
-  kHull,
-  kDomain
-};
+enum class MetalShaderStage { kVertex, kFragment, kGeometry, kCompute, kHull, kDomain };
 
 // Result of shader conversion
 struct MetalShaderConversionResult {
@@ -100,8 +93,7 @@ struct MetalStageCompileRequest {
   // the same MSC compile. The callback is invoked before MSC objects are
   // destroyed and must return a layout valid until CompileStageUncached
   // returns.
-  std::function<const IRVersionedInputLayoutDescriptor*(
-      const MetalShaderReflectionInfo&)>
+  std::function<const IRVersionedInputLayoutDescriptor*(const MetalShaderReflectionInfo&)>
       stage_in_layout_builder;
   uint64_t stage_in_layout_key = 0;
   bool enable_geometry_emulation = false;
@@ -155,34 +147,27 @@ class MetalShaderConverter {
   // shader_type: Xenia shader type (vertex or pixel)
   // dxil_data: DXIL bytecode from dxbc2dxil
   // result: Output conversion result with metallib data
-  bool Convert(xenos::ShaderType shader_type,
-               const std::vector<uint8_t>& dxil_data,
+  bool Convert(xenos::ShaderType shader_type, const std::vector<uint8_t>& dxil_data,
                MetalShaderConversionResult& result);
 
   // Convert with explicit stage specification
-  bool ConvertWithStage(MetalShaderStage stage,
-                        const std::vector<uint8_t>& dxil_data,
+  bool ConvertWithStage(MetalShaderStage stage, const std::vector<uint8_t>& dxil_data,
                         MetalShaderConversionResult& result);
 
-  bool ConvertWithStageEx(MetalShaderStage stage,
-                          const std::vector<uint8_t>& dxil_data,
+  bool ConvertWithStageEx(MetalShaderStage stage, const std::vector<uint8_t>& dxil_data,
                           MetalShaderConversionResult& result,
                           MetalShaderReflectionInfo* reflection,
                           const IRVersionedInputLayoutDescriptor* input_layout,
-                          std::vector<uint8_t>* stage_in_metallib,
-                          bool enable_geometry_emulation, int input_topology);
+                          std::vector<uint8_t>* stage_in_metallib, bool enable_geometry_emulation,
+                          int input_topology);
 
   std::shared_ptr<const MetalStageCompileResult> CompileStage(
       const MetalStageCompileRequest& request);
-  MetalStageCompileResult CompileStageUncached(
-      const MetalStageCompileRequest& request);
+  MetalStageCompileResult CompileStageUncached(const MetalStageCompileRequest& request);
 
-  void SetMinimumTarget(uint32_t gpu_family, uint32_t os,
-                        const std::string& version);
+  void SetMinimumTarget(uint32_t gpu_family, uint32_t os, const std::string& version);
 
-  MetalStageCompileCache* stage_compile_cache() {
-    return stage_compile_cache_.get();
-  }
+  MetalStageCompileCache* stage_compile_cache() { return stage_compile_cache_.get(); }
 
  private:
   void PopulateDefaultRequestOptions(MetalStageCompileRequest& request) const;
@@ -198,7 +183,7 @@ class MetalShaderConverter {
 };
 
 }  // namespace metal
-}  // namespace gpu
-}  // namespace xe
+}  // namespace graphics
+}  // namespace rex
 
 #endif  // XENIA_GPU_METAL_METAL_SHADER_CONVERTER_H_

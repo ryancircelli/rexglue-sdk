@@ -20,8 +20,7 @@ void Initialize(MTL::Device* device);
 
 // Render pass: attaches sample-buffer indices to the descriptor, which the caller must
 // pass to renderCommandEncoder() and then hand to ClearRender() (descriptors are cached).
-PassRef BeginRender(MTL::CommandBuffer* cmd, MTL::RenderPassDescriptor* desc,
-                    const char* site);
+PassRef BeginRender(MTL::CommandBuffer* cmd, MTL::RenderPassDescriptor* desc, const char* site);
 void ClearRender(MTL::RenderPassDescriptor* desc);
 void NoteDraw(PassRef pass);
 // FABLE2_PASS_TRACE_PS=1: the pass key also lists its pixel shaders (ucode hash, high 32 bits).
@@ -36,8 +35,7 @@ void EndPass(PassRef pass, const char* end_reason);
 MTL::ComputeCommandEncoder* Compute(MTL::CommandBuffer* cmd, const char* site);
 // Same, with a per-encoder key for the CSV (default: the site). Build the key only when
 // Enabled() is true.
-MTL::ComputeCommandEncoder* Compute(MTL::CommandBuffer* cmd, const char* site,
-                                    const char* key);
+MTL::ComputeCommandEncoder* Compute(MTL::CommandBuffer* cmd, const char* site, const char* key);
 MTL::BlitCommandEncoder* Blit(MTL::CommandBuffer* cmd, const char* site);
 
 }  // namespace rex::graphics::metal::pass_trace

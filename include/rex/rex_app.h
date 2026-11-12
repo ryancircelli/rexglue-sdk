@@ -149,6 +149,11 @@ class ReXApp : public ui::WindowedApp, public ui::WindowListener, public ui::Win
     (void)ui_style;
   }
 
+  /// Called once the config file has been read, before the log cvars are read and logging is
+  /// initialized: cvars set here (log_level included) still take effect. user_data_root() is
+  /// already known.
+  virtual void OnConfigLoaded() {}
+
   /// Called after logging is initialized. Add log sinks here.
   virtual void OnPostInitLogging() {}
 
@@ -164,6 +169,14 @@ class ReXApp : public ui::WindowedApp, public ui::WindowListener, public ui::Win
   /// Called after the main guest thread is created but before it starts
   /// executing. The thread is suspended -- attach debuggers/monitors here.
   virtual void OnPostLaunchModule(system::XThread* thread) { (void)thread; }
+
+  /// Called after OnPostLaunchModule, in place of starting the main guest thread. An app with
+  /// work to finish before the game runs returns true and calls start once when the game may run.
+  /// false (the default) starts it immediately.
+  virtual bool OnHoldModuleLaunch(std::function<void()> start) {
+    (void)start;
+    return false;
+  }
 
   /// Called when the main guest thread exits. The runtime is still alive.
   /// Use for cleanup that depends on runtime resources.

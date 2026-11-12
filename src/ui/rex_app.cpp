@@ -158,6 +158,7 @@ bool ReXApp::SetupEnvironment() {
   // Load config FIRST so log cvars have final values
   if (std::filesystem::exists(config_path_))
     rex::cvar::LoadConfig(config_path_);
+  OnConfigLoaded();
 
   std::string log_level_str = REXCVAR_GET(log_level);
   if (REXCVAR_GET(log_verbose) && log_level_str == "info")
@@ -165,8 +166,12 @@ bool ReXApp::SetupEnvironment() {
 
   auto log_config =
       rex::BuildLogConfig(log_level_str, rex::ParseCategoryLevelsFromConfig(config_path_));
-  log_config.app_name = std::string(GetName());
-  log_config.log_dir = exe_dir / "logs";
+  // With log_level "off" and no explicit log_file, do not create an empty
+  // sequential log file on every start.
+  if (log_level_str != "off") {
+    log_config.app_name = std::string(GetName());
+    log_config.log_dir = exe_dir / "logs";
+  }
   OnConfigureLogging(log_config);
   rex::ApplyLogCvarOverrides(log_config);
   rex::InitLogging(log_config);
@@ -345,8 +350,8 @@ bool ReXApp::SetupPresentation() {
   window_->AddListener(this);
   window_->AddInputListener(this, 0);
 
-  // A fullscreen window takes over the screen (its own Space on macOS) whether or not it is activated, so a window
-  // that starts minimized starts windowed.
+  // A fullscreen window takes over the screen (its own Space on macOS) whether or not it is
+  // activated, so a window that starts minimized starts windowed.
   if (REXCVAR_GET(fullscreen) && !REXCVAR_GET(window_start_minimized)) {
     window_->SetFullscreen(true);
   }
@@ -495,7 +500,12 @@ void ReXApp::LaunchModule() {
     }
 
     OnPostLaunchModule(main_thread.get());
-    main_thread->Resume();
+    system::XThread* const held = main_thread.get();
+    if (!OnHoldModuleLaunch([this, held]() {
+          app_context().CallInUIThreadDeferred([held]() { held->Resume(); });
+        })) {
+      main_thread->Resume();
+    }
 
     module_thread_ = std::thread([this, main_thread = std::move(main_thread)]() mutable {
       main_thread->Wait(0, 0, 0, nullptr);

@@ -1,0 +1,13 @@
+--- a/include/rex/graphics/shared_memory.h
++++ b/include/rex/graphics/shared_memory.h
+@@ -164,6 +164,10 @@
+   // locked when checking or updating validity of pages/ranges and when firing
+   // watches.
+   rex::thread::global_critical_region global_critical_region_;
++
++protected:
++  // Accessor for derived classes (e.g., MetalSharedMemory) to acquire the global lock.
++  rex::thread::global_critical_region& GetGlobalCriticalRegion() { return global_critical_region_; }
+ 
+   // ***************************************************************************
+   // Things below should be fully protected by global_critical_region.

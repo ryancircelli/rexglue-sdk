@@ -64,6 +64,13 @@ RX_DEFINE_RULE(xenos_cf_call_jmp, 1,
                "(call/jmp: unconditional, predicated (p0 == condition) or bool "
                "constant; call pushes the next CF index)",
                false, "");
+RX_DEFINE_RULE(xenos_cf_end_of_program, 1,
+               "control flow reaching the end of the ucode terminates cleanly, "
+               "equivalent to an implicit ExecEnd. This happens when the last CF "
+               "instruction is a NOP or non-ending exec and the PC advances past "
+               "the allocated ucode. Hardware either pads the allocation or "
+               "recognizes the boundary.",
+               false, "");
 RX_DEFINE_RULE(xenos_cf_lanes_independent, 1,
                "assumed: refxenos runs each pixel of a quad with its own control "
                "flow (lead requirement). XDK microcode_predicate_logic.htm says a "
@@ -231,8 +238,12 @@ RX_DEFINE_RULE(xenos_transcendental_taint, 1,
 // Options
 
 static InterpOptions g_options;
-void SetInterpOptions(const InterpOptions& o) { g_options = o; }
-const InterpOptions& GetInterpOptions() { return g_options; }
+void SetInterpOptions(const InterpOptions& o) {
+  g_options = o;
+}
+const InterpOptions& GetInterpOptions() {
+  return g_options;
+}
 
 namespace {
 
@@ -279,7 +290,8 @@ struct Lane {
 
   int32_t GetAL() const {
     RX_USE(xenos_cf_aL_clamp);
-    if (!loop_depth) return 0;
+    if (!loop_depth)
+      return 0;
     return std::clamp(aL[loop_depth - 1], -256, 256);
   }
 };
@@ -301,12 +313,14 @@ struct Ctx {
   uint32_t vertex_index = 0;
 
   void Note(const std::string& s) {
-    if (std::find(notes.begin(), notes.end(), s) == notes.end()) notes.push_back(s);
+    if (std::find(notes.begin(), notes.end(), s) == notes.end())
+      notes.push_back(s);
   }
 };
 
 void Trace(Ctx& ctx, Lane& lane, const std::string& text) {
-  if (!lane.trace || !ctx.probe) return;
+  if (!lane.trace || !ctx.probe)
+    return;
   if (ctx.is_ps) {
     ctx.probe->Log(lane.x, lane.y, "ps", text);
   } else {
@@ -317,7 +331,8 @@ void Trace(Ctx& ctx, Lane& lane, const std::string& text) {
 std::string Vec4Str(const float v[4]) {
   std::string s = "(";
   for (int i = 0; i < 4; ++i) {
-    if (i) s += ", ";
+    if (i)
+      s += ", ";
     s += FormatFloat(v[i]);
   }
   return s + ")";
@@ -328,7 +343,8 @@ std::string Vec4Str(const float v[4]) {
 bool GetCf(const ShaderProgram& prog, uint32_t cf, ucode::ControlFlowInstruction* out) {
   RX_USE(xenos_cf_pair_layout);
   size_t base = size_t(cf >> 1) * 3;
-  if (base + 3 > prog.ucode.size()) return false;
+  if (base + 3 > prog.ucode.size())
+    return false;
   ucode::ControlFlowInstruction pair[2];
   ucode::UnpackControlFlowInstructions(prog.ucode.data() + base, pair);
   *out = pair[cf & 1];
@@ -337,7 +353,8 @@ bool GetCf(const ShaderProgram& prog, uint32_t cf, ucode::ControlFlowInstruction
 
 const uint32_t* GetInstr(const ShaderProgram& prog, uint32_t address) {
   size_t base = size_t(address) * 3;
-  if (base + 3 > prog.ucode.size()) return nullptr;
+  if (base + 3 > prog.ucode.size())
+    return nullptr;
   return prog.ucode.data() + base;
 }
 
@@ -351,35 +368,48 @@ bool BoolConstant(const RegisterFile& regs, uint32_t bool_address) {
 bool ReadTemp(const Lane& lane, int32_t idx, float v[4], uint8_t t[4]) {
   if (idx < 0 || idx > 63) {
     RX_USE(xenos_alu_temp_relative_oob);
-    for (int i = 0; i < 4; ++i) { v[i] = 0.0f; t[i] = 0; }
+    for (int i = 0; i < 4; ++i) {
+      v[i] = 0.0f;
+      t[i] = 0;
+    }
     return false;
   }
-  for (int i = 0; i < 4; ++i) { v[i] = lane.r[idx][i]; t[i] = lane.rt[idx][i]; }
+  for (int i = 0; i < 4; ++i) {
+    v[i] = lane.r[idx][i];
+    t[i] = lane.rt[idx][i];
+  }
   return true;
 }
 
 void ReadConst(const Ctx& ctx, int32_t idx, float v[4]) {
   RX_USE(xenos_alu_const_addressing);
-  for (int i = 0; i < 4; ++i) v[i] = 0.0f;
-  if (idx < 0 || uint32_t(idx) > ctx.const_size_minus_1) { RX_USE(xenos_alu_const_oob_zero); return; }
+  for (int i = 0; i < 4; ++i)
+    v[i] = 0.0f;
+  if (idx < 0 || uint32_t(idx) > ctx.const_size_minus_1) {
+    RX_USE(xenos_alu_const_oob_zero);
+    return;
+  }
   uint32_t full = uint32_t(idx) + ctx.const_base;
-  if (full >= 512) { RX_USE(xenos_alu_const_oob_zero); return; }
+  if (full >= 512) {
+    RX_USE(xenos_alu_const_oob_zero);
+    return;
+  }
   std::memcpy(v, &ctx.regs->values[XE_GPU_REG_SHADER_CONSTANT_000_X + 4 * full], 16);
 }
 
 // Reads the raw (unswizzled) register of ALU source i and its abs flag.
-void ReadAluSourceRegister(const Ctx& ctx, const Lane& lane,
-                           const ucode::AluInstruction& op, uint32_t i,
-                           float v[4], uint8_t t[4], bool* abs,
-                           std::string* name) {
+void ReadAluSourceRegister(const Ctx& ctx, const Lane& lane, const ucode::AluInstruction& op,
+                           uint32_t i, float v[4], uint8_t t[4], bool* abs, std::string* name) {
   uint32_t reg = op.src_reg(i);
   if (op.src_is_temp(i)) {
     int32_t idx = int32_t(reg & 0x3F);
     bool rel = (reg & 0x40) != 0;
-    if (rel) idx += lane.GetAL();
+    if (rel)
+      idx += lane.GetAL();
     *abs = (reg & 0x80) != 0;
     ReadTemp(lane, idx, v, t);
-    if (name) *name = (rel ? "r[aL+" + std::to_string(reg & 0x3F) + "]" : "r" + std::to_string(reg & 0x3F));
+    if (name)
+      *name = (rel ? "r[aL+" + std::to_string(reg & 0x3F) + "]" : "r" + std::to_string(reg & 0x3F));
   } else {
     int32_t idx = int32_t(reg);
     uint8_t at = 0;
@@ -393,18 +423,22 @@ void ReadAluSourceRegister(const Ctx& ctx, const Lane& lane,
     }
     *abs = op.abs_constants();
     ReadConst(ctx, idx, v);
-    for (int k = 0; k < 4; ++k) t[k] = at;
+    for (int k = 0; k < 4; ++k)
+      t[k] = at;
     if (name) {
       *name = op.src_const_is_addressed(i)
-                  ? std::string("c[") + (op.is_const_address_register_relative() ? "a0" : "aL") + "+" + std::to_string(reg) + "]"
+                  ? std::string("c[") + (op.is_const_address_register_relative() ? "a0" : "aL") +
+                        "+" + std::to_string(reg) + "]"
                   : "c" + std::to_string(reg);
     }
   }
 }
 
 float ApplyMods(float x, bool abs, bool neg) {
-  if (abs) x = std::fabs(x);
-  if (neg) x = -x;
+  if (abs)
+    x = std::fabs(x);
+  if (neg)
+    x = -x;
   return FlushDenormal(x);
 }
 
@@ -426,8 +460,7 @@ void ReadVectorOperand(const Ctx& ctx, const Lane& lane, const ucode::AluInstruc
 
 // --- Writes ---
 
-void WriteTemp(Lane& lane, int32_t idx, uint32_t mask, const float v[4],
-               const uint8_t t[4]) {
+void WriteTemp(Lane& lane, int32_t idx, uint32_t mask, const float v[4], const uint8_t t[4]) {
   if (idx < 0 || idx > 63) {
     RX_USE(xenos_alu_temp_relative_oob);
     return;
@@ -440,16 +473,18 @@ void WriteTemp(Lane& lane, int32_t idx, uint32_t mask, const float v[4],
   }
 }
 
-void WriteExport(Ctx& ctx, Lane& lane, uint32_t reg, uint32_t mask,
-                 const float v[4], const uint8_t t[4]) {
-  if (!mask) return;
+void WriteExport(Ctx& ctx, Lane& lane, uint32_t reg, uint32_t mask, const float v[4],
+                 const uint8_t t[4]) {
+  if (!mask)
+    return;
   reg &= 63;
   if (reg >= 32 && reg <= 37) {
     RX_USE(xenos_memexport_recorded);
     ++ctx.memexport_writes;
     if (lane.trace) {
-      Trace(ctx, lane, "memexport " + std::string(reg == 32 ? "eA" : "eM" + std::to_string(reg - 33)) +
-                           " = " + Vec4Str(v));
+      Trace(ctx, lane,
+            "memexport " + std::string(reg == 32 ? "eA" : "eM" + std::to_string(reg - 33)) + " = " +
+                Vec4Str(v));
     }
   }
   RawExports& e = *lane.exports;
@@ -469,7 +504,8 @@ void ExecuteAlu(Ctx& ctx, Lane& lane, const uint32_t* dwords) {
   const auto& op = *reinterpret_cast<const ucode::AluInstruction*>(dwords);
   if (op.is_predicated() && op.predicate_condition() != lane.p) {
     RX_USE(xenos_alu_predication);
-    if (lane.trace) Trace(ctx, lane, DisassembleAlu(dwords) + "  ; skipped (predicate)");
+    if (lane.trace)
+      Trace(ctx, lane, DisassembleAlu(dwords) + "  ; skipped (predicate)");
     return;
   }
   uint8_t pred_t = op.is_predicated() ? lane.p_t : 0;
@@ -534,7 +570,8 @@ void ExecuteAlu(Ctx& ctx, Lane& lane, const uint32_t* dwords) {
     sb = ApplyMods(tv[cb], abs, neg);
     sa_t = at;
     sb_t = tt[cb];
-    if (lane.trace) sname = "c" + std::to_string(op.src_reg(3)) + ", r" + std::to_string(treg);
+    if (lane.trace)
+      sname = "c" + std::to_string(op.src_reg(3)) + ", r" + std::to_string(treg);
   }
 
   VectorOpResult vr;
@@ -544,10 +581,20 @@ void ExecuteAlu(Ctx& ctx, Lane& lane, const uint32_t* dwords) {
   {
     bool componentwise = true;
     switch (vop) {
-      case V::kDp4: case V::kDp3: case V::kDp2Add: case V::kCube: case V::kMax4:
-      case V::kSetpEqPush: case V::kSetpNePush: case V::kSetpGtPush:
-      case V::kSetpGePush: case V::kKillEq: case V::kKillGt: case V::kKillGe:
-      case V::kKillNe: case V::kDst:
+      case V::kDp4:
+      case V::kDp3:
+      case V::kDp2Add:
+      case V::kCube:
+      case V::kMax4:
+      case V::kSetpEqPush:
+      case V::kSetpNePush:
+      case V::kSetpGtPush:
+      case V::kSetpGePush:
+      case V::kKillEq:
+      case V::kKillGt:
+      case V::kKillGe:
+      case V::kKillNe:
+      case V::kDst:
         componentwise = false;
         break;
       default:
@@ -555,11 +602,13 @@ void ExecuteAlu(Ctx& ctx, Lane& lane, const uint32_t* dwords) {
     }
     uint8_t all = pred_t;
     for (uint32_t i = 0; i < vcount; ++i)
-      for (int j = 0; j < 4; ++j) all = std::max(all, vt[i][j]);
+      for (int j = 0; j < 4; ++j)
+        all = std::max(all, vt[i][j]);
     for (int j = 0; j < 4; ++j) {
       if (componentwise) {
         uint8_t m = pred_t;
-        for (uint32_t i = 0; i < vcount; ++i) m = std::max(m, vt[i][j]);
+        for (uint32_t i = 0; i < vcount; ++i)
+          m = std::max(m, vt[i][j]);
         vres_t[j] = m;
       } else {
         vres_t[j] = all;
@@ -571,7 +620,10 @@ void ExecuteAlu(Ctx& ctx, Lane& lane, const uint32_t* dwords) {
   ExecuteScalarOp(sop, sa, sb, lane.ps, &sr);
   uint8_t sres_t = std::max({sa_t, sb_t, pred_t});
   switch (sop) {
-    case S::kAddsPrev: case S::kMulsPrev: case S::kMulsPrev2: case S::kSubsPrev:
+    case S::kAddsPrev:
+    case S::kMulsPrev:
+    case S::kMulsPrev2:
+    case S::kSubsPrev:
     case S::kRetainPrev:
       sres_t = std::max(sres_t, lane.ps_t);
       break;
@@ -587,25 +639,45 @@ void ExecuteAlu(Ctx& ctx, Lane& lane, const uint32_t* dwords) {
   float vout[4];
   for (int j = 0; j < 4; ++j) {
     vout[j] = FlushDenormal(vr.v[j]);
-    if (op.vector_clamp()) vout[j] = Saturate(vout[j]);
+    if (op.vector_clamp())
+      vout[j] = Saturate(vout[j]);
   }
   float sraw = FlushDenormal(sr.v);
   float sout = op.scalar_clamp() ? Saturate(sraw) : sraw;
 
   // State updates (vector first, then scalar).
   RX_USE(xenos_alu_vector_then_scalar);
-  if (vr.sets_predicate) { lane.p = vr.predicate; lane.p_t = vres_t[0]; }
-  if (vr.sets_a0) { lane.a0 = vr.a0; lane.a0_t = vres_t[3]; }
-  if (vr.kill && ctx.is_ps) { RX_USE(xenos_kill_continues); lane.killed = true; }
+  if (vr.sets_predicate) {
+    lane.p = vr.predicate;
+    lane.p_t = vres_t[0];
+  }
+  if (vr.sets_a0) {
+    lane.a0 = vr.a0;
+    lane.a0_t = vres_t[3];
+  }
+  if (vr.kill && ctx.is_ps) {
+    RX_USE(xenos_kill_continues);
+    lane.killed = true;
+  }
   if (sop != S::kRetainPrev) {
     RX_USE(xenos_alu_ps_unsaturated);
     lane.ps = sraw;
     lane.ps_t = sres_t;
   }
-  if (sr.sets_predicate) { lane.p = sr.predicate; lane.p_t = sres_t; }
-  if (sr.sets_a0) { lane.a0 = sr.a0; lane.a0_t = sres_t; }
-  if (sr.kill && ctx.is_ps) { RX_USE(xenos_kill_continues); lane.killed = true; }
-  if ((vr.kill || sr.kill) && !ctx.is_ps) ctx.Note("kill instruction in a vertex shader ignored");
+  if (sr.sets_predicate) {
+    lane.p = sr.predicate;
+    lane.p_t = sres_t;
+  }
+  if (sr.sets_a0) {
+    lane.a0 = sr.a0;
+    lane.a0_t = sres_t;
+  }
+  if (sr.kill && ctx.is_ps) {
+    RX_USE(xenos_kill_continues);
+    lane.killed = true;
+  }
+  if ((vr.kill || sr.kill) && !ctx.is_ps)
+    ctx.Note("kill instruction in a vertex shader ignored");
 
   // Stores.
   RX_USE(xenos_alu_masks);
@@ -625,21 +697,28 @@ void ExecuteAlu(Ctx& ctx, Lane& lane, const uint32_t* dwords) {
     WriteExport(ctx, lane, reg, c1mask, ones, zt);
   } else {
     int32_t vd = int32_t(op.vector_dest());
-    if (op.is_vector_dest_relative()) vd += lane.GetAL();
+    if (op.is_vector_dest_relative())
+      vd += lane.GetAL();
     WriteTemp(lane, vd, vmask, vout, vres_t);
     int32_t sd = int32_t(op.scalar_dest());
-    if (op.is_scalar_dest_relative()) sd += lane.GetAL();
+    if (op.is_scalar_dest_relative())
+      sd += lane.GetAL();
     WriteTemp(lane, sd, smask, sv4, st4);
   }
 
   if (lane.trace) {
     std::string s = DisassembleAlu(dwords) + "  ;";
-    for (uint32_t i = 0; i < vcount; ++i) s += " " + vnames[i] + "=" + Vec4Str(vs[i]);
-    if (sinfo.operand_count) s += " | " + sname + " a=" + FormatFloat(sa) + " b=" + FormatFloat(sb);
+    for (uint32_t i = 0; i < vcount; ++i)
+      s += " " + vnames[i] + "=" + Vec4Str(vs[i]);
+    if (sinfo.operand_count)
+      s += " | " + sname + " a=" + FormatFloat(sa) + " b=" + FormatFloat(sb);
     s += " -> v=" + Vec4Str(vout) + " s=" + FormatFloat(sout);
-    if (vr.sets_predicate || sr.sets_predicate) s += std::string(" p0=") + (lane.p ? "1" : "0");
-    if (vr.sets_a0 || sr.sets_a0) s += " a0=" + std::to_string(lane.a0);
-    if (lane.killed) s += " killed";
+    if (vr.sets_predicate || sr.sets_predicate)
+      s += std::string(" p0=") + (lane.p ? "1" : "0");
+    if (vr.sets_a0 || sr.sets_a0)
+      s += " a0=" + std::to_string(lane.a0);
+    if (lane.killed)
+      s += " killed";
     Trace(ctx, lane, s);
   }
 }
@@ -650,17 +729,26 @@ void StoreFetchResult(Lane& lane, const ucode::FetchInstruction& f, const float 
                       const uint8_t t[4]) {
   RX_USE(xenos_vfetch_dest_swizzle);
   int32_t d = int32_t(f.dest());
-  if (f.is_dest_relative()) d += lane.GetAL();
+  if (f.is_dest_relative())
+    d += lane.GetAL();
   float out[4];
   uint8_t ot[4];
   uint32_t mask = 0;
   for (uint32_t c = 0; c < 4; ++c) {
     uint32_t s = uint32_t(ucode::GetFetchDestinationComponentSwizzle(f.dest_swizzle(), c));
-    if (s == 7) continue;
+    if (s == 7)
+      continue;
     mask |= 1u << c;
-    if (s < 4) { out[c] = v[s]; ot[c] = t[s]; }
-    else if (s == 5) { out[c] = 1.0f; ot[c] = 0; }
-    else { out[c] = 0.0f; ot[c] = 0; }
+    if (s < 4) {
+      out[c] = v[s];
+      ot[c] = t[s];
+    } else if (s == 5) {
+      out[c] = 1.0f;
+      ot[c] = 0;
+    } else {
+      out[c] = 0.0f;
+      ot[c] = 0;
+    }
   }
   WriteTemp(lane, d, mask, out, ot);
 }
@@ -670,7 +758,8 @@ void ReadFetchSource(const Lane& lane, uint32_t src, bool rel, uint32_t swz, uin
                      float out[3], uint8_t t[3]) {
   RX_USE(xenos_fetch_source_swizzle);
   int32_t idx = int32_t(src);
-  if (rel) idx += lane.GetAL();
+  if (rel)
+    idx += lane.GetAL();
   float v[4];
   uint8_t vt[4];
   ReadTemp(lane, idx, v, vt);
@@ -684,12 +773,15 @@ void ReadFetchSource(const Lane& lane, uint32_t src, bool rel, uint32_t swz, uin
 // IEEE half rounding toward zero (tfetch_gradient_fp16).
 float TruncateToHalf(float f) {
   RX_USE(tfetch_gradient_fp16);
-  if (std::isnan(f)) return f;
+  if (std::isnan(f))
+    return f;
   uint32_t u = FloatBits(f);
   uint32_t sign = u & 0x80000000u;
   float a = std::fabs(f);
-  if (a >= 65504.0f) return BitsFloat(sign | FloatBits(65504.0f));
-  if (a < 0x1p-24f) return BitsFloat(sign);
+  if (a >= 65504.0f)
+    return BitsFloat(sign | FloatBits(65504.0f));
+  if (a < 0x1p-24f)
+    return BitsFloat(sign);
   if (a < 0x1p-14f) {
     // Denormal half: multiples of 2^-24.
     float q = std::trunc(a * 0x1p24f) * 0x1p-24f;
@@ -708,7 +800,8 @@ void ExecuteFetch(Ctx& ctx, Lane& lane, const uint32_t* dwords, const QuadSnapsh
   const auto& f = *reinterpret_cast<const ucode::FetchInstruction*>(dwords);
   if (f.is_predicated() && f.predicate_condition() != lane.p) {
     RX_USE(tfetch_predicated_skip);
-    if (lane.trace) Trace(ctx, lane, DisassembleFetch(dwords) + "  ; skipped (predicate)");
+    if (lane.trace)
+      Trace(ctx, lane, DisassembleFetch(dwords) + "  ; skipped (predicate)");
     return;
   }
   ucode::FetchOpcode opc = f.opcode();
@@ -736,9 +829,16 @@ void ExecuteFetch(Ctx& ctx, Lane& lane, const uint32_t* dwords, const QuadSnapsh
     uint8_t zt[4] = {0, 0, 0, 0};
     StoreFetchResult(lane, f, out, zt);
     if (lane.trace) {
-      Trace(ctx, lane, DisassembleFetch(dwords) + "  ; index=" + std::to_string(lane.last_addr.index) +
-                           " addr=0x" + [&] { char b[16]; std::snprintf(b, 16, "%08X", lane.last_addr.element_base); return std::string(b); }() +
-                           " -> " + Vec4Str(out));
+      Trace(
+          ctx, lane,
+          DisassembleFetch(dwords) + "  ; index=" + std::to_string(lane.last_addr.index) +
+              " addr=0x" +
+              [&] {
+                char b[16];
+                std::snprintf(b, 16, "%08X", lane.last_addr.element_base);
+                return std::string(b);
+              }() +
+              " -> " + Vec4Str(out));
     }
     return;
   }
@@ -755,13 +855,15 @@ void ExecuteFetch(Ctx& ctx, Lane& lane, const uint32_t* dwords, const QuadSnapsh
       ReadFetchSource(lane, tf.src(), tf.is_src_relative(), tf.src_swizzle(), 1, src, src_t);
       lane.tex_lod = src[0];
       lane.tex_lod_t = src_t[0];
-      if (lane.trace) Trace(ctx, lane, DisassembleFetch(dwords) + "  ; lod=" + FormatFloat(src[0]));
+      if (lane.trace)
+        Trace(ctx, lane, DisassembleFetch(dwords) + "  ; lod=" + FormatFloat(src[0]));
       return;
     }
     case ucode::FetchOpcode::kSetTextureGradientsHorz:
     case ucode::FetchOpcode::kSetTextureGradientsVert: {
       ReadFetchSource(lane, tf.src(), tf.is_src_relative(), tf.src_swizzle(), 3, src, src_t);
-      float* g = opc == ucode::FetchOpcode::kSetTextureGradientsHorz ? lane.reg_grad_h : lane.reg_grad_v;
+      float* g =
+          opc == ucode::FetchOpcode::kSetTextureGradientsHorz ? lane.reg_grad_h : lane.reg_grad_v;
       for (int i = 0; i < 3; ++i) {
         g[i] = TruncateToHalf(src[i]);
         lane.reg_grad_t = std::max(lane.reg_grad_t, src_t[i]);
@@ -782,13 +884,15 @@ void ExecuteFetch(Ctx& ctx, Lane& lane, const uint32_t* dwords, const QuadSnapsh
         out[1] = TruncateToHalf(quad->v[2][0] - quad->v[0][0]);
         out[2] = TruncateToHalf(quad->v[1][1] - quad->v[0][1]);
         out[3] = TruncateToHalf(quad->v[2][1] - quad->v[0][1]);
-        for (int l = 0; l < 3; ++l) t = std::max({t, quad->t[l][0], quad->t[l][1]});
+        for (int l = 0; l < 3; ++l)
+          t = std::max({t, quad->t[l][0], quad->t[l][1]});
       } else {
         RX_USE(tfetch_vs_zero_gradients);
       }
       uint8_t t4[4] = {t, t, t, t};
       StoreFetchResult(lane, f, out, t4);
-      if (lane.trace) Trace(ctx, lane, DisassembleFetch(dwords) + "  ; -> " + Vec4Str(out));
+      if (lane.trace)
+        Trace(ctx, lane, DisassembleFetch(dwords) + "  ; -> " + Vec4Str(out));
       return;
     }
     default:
@@ -802,9 +906,11 @@ void ExecuteFetch(Ctx& ctx, Lane& lane, const uint32_t* dwords, const QuadSnapsh
   req.fetch_constant = tf.fetch_constant_index();
   req.dimension = dim;
   req.coord_count = ncomp;
-  for (uint32_t i = 0; i < 3; ++i) req.coord[i] = src[i];
+  for (uint32_t i = 0; i < 3; ++i)
+    req.coord[i] = src[i];
   req.coord[3] = 0.0f;
-  if (dim == 3) RX_USE(tfetch_cube_coords);
+  if (dim == 3)
+    RX_USE(tfetch_cube_coords);
   RX_USE(tfetch_lod_fields);
   req.use_register_lod = tf.use_register_lod();
   req.lod = tf.use_register_lod() ? lane.tex_lod : 0.0f;
@@ -814,12 +920,18 @@ void ExecuteFetch(Ctx& ctx, Lane& lane, const uint32_t* dwords, const QuadSnapsh
   req.offset[2] = tf.offset_z();
   req.unnormalized_coordinates = tf.unnormalized_coordinates();
   req.fetch_valid_only = tf.fetch_valid_only();
-  if (tf.has_mag_filter()) req.mag_filter = uint32_t(tf.mag_filter());
-  if (tf.has_min_filter()) req.min_filter = uint32_t(tf.min_filter());
-  if (tf.has_mip_filter()) req.mip_filter = uint32_t(tf.mip_filter());
-  if (tf.has_aniso_filter()) req.aniso_filter = uint32_t(tf.aniso_filter());
-  if (tf.has_vol_mag_filter()) req.vol_mag_filter = uint32_t(tf.vol_mag_filter());
-  if (tf.has_vol_min_filter()) req.vol_min_filter = uint32_t(tf.vol_min_filter());
+  if (tf.has_mag_filter())
+    req.mag_filter = uint32_t(tf.mag_filter());
+  if (tf.has_min_filter())
+    req.min_filter = uint32_t(tf.min_filter());
+  if (tf.has_mip_filter())
+    req.mip_filter = uint32_t(tf.mip_filter());
+  if (tf.has_aniso_filter())
+    req.aniso_filter = uint32_t(tf.aniso_filter());
+  if (tf.has_vol_mag_filter())
+    req.vol_mag_filter = uint32_t(tf.vol_mag_filter());
+  if (tf.has_vol_min_filter())
+    req.vol_min_filter = uint32_t(tf.vol_min_filter());
   req.arbitrary_filter_raw = (dwords[1] >> 21) & 7;
   req.sample_location = uint32_t(tf.sample_location());
   req.is_pixel_shader = ctx.is_ps;
@@ -827,17 +939,22 @@ void ExecuteFetch(Ctx& ctx, Lane& lane, const uint32_t* dwords, const QuadSnapsh
   req.lane = uint32_t(&lane - ctx.lanes);
   req.x = uint32_t(lane.x);
   req.y = uint32_t(lane.y);
-  for (int i = 0; i < 3; ++i) req.instr_dwords[i] = dwords[i];
+  for (int i = 0; i < 3; ++i)
+    req.instr_dwords[i] = dwords[i];
 
   uint8_t t = std::max({src_t[0], src_t[1], src_t[2]});
-  if (req.use_register_lod) t = std::max(t, lane.tex_lod_t);
+  if (req.use_register_lod)
+    t = std::max(t, lane.tex_lod_t);
   bool wants_computed = tf.use_computed_lod() || opc == ucode::FetchOpcode::kGetTextureComputedLod;
   if (tf.use_register_gradients()) {
     RX_USE(tfetch_register_gradients_shared);
     const Lane* src_lane = &lane;
     if (ctx.is_ps) {
       for (int l = 0; l < ctx.lane_count; ++l) {
-        if (!ctx.lanes[l].helper) { src_lane = &ctx.lanes[l]; break; }
+        if (!ctx.lanes[l].helper) {
+          src_lane = &ctx.lanes[l];
+          break;
+        }
       }
     }
     for (int i = 0; i < 3; ++i) {
@@ -858,7 +975,8 @@ void ExecuteFetch(Ctx& ctx, Lane& lane, const uint32_t* dwords, const QuadSnapsh
     req.use_computed_lod = wants_computed;
     if (wants_computed) {
       for (int l = 0; l < 3; ++l)
-        for (uint32_t i = 0; i < ncomp; ++i) t = std::max(t, quad->t[l][i]);
+        for (uint32_t i = 0; i < ncomp; ++i)
+          t = std::max(t, quad->t[l][i]);
     }
   } else {
     RX_USE(tfetch_vs_zero_gradients);
@@ -894,8 +1012,8 @@ void ExecuteFetch(Ctx& ctx, Lane& lane, const uint32_t* dwords, const QuadSnapsh
       lr.op = uint32_t(ucode::FetchOpcode::kGetTextureComputedLod);
       float lod_out[4] = {0, 0, 0, 0};
       ctx.sampler->Fetch(lr, lod_out, &unused);
-      std::string mips = "  ; computed_lod=" + FormatFloat(lod_out[0]) + " aniso=" +
-                         (req.aniso_filter ? std::to_string(*req.aniso_filter) : "fc") +
+      std::string mips = "  ; computed_lod=" + FormatFloat(lod_out[0]) +
+                         " aniso=" + (req.aniso_filter ? std::to_string(*req.aniso_filter) : "fc") +
                          " mipf=" + (req.mip_filter ? std::to_string(*req.mip_filter) : "fc");
       for (int m = 0; m < 8; ++m) {
         TexFetchRequest mr = req;
@@ -936,20 +1054,26 @@ void SnapshotQuad(Ctx& ctx, const uint32_t* dwords, QuadSnapshot* snap) {
   const auto& tf = reinterpret_cast<const ucode::FetchInstruction*>(dwords)->texture_fetch();
   uint32_t dim = uint32_t(tf.dimension());
   uint32_t n = tf.opcode() == ucode::FetchOpcode::kGetTextureGradients ? 2
-               : dim == 0 ? 1 : dim == 1 ? 2 : 3;
+               : dim == 0                                              ? 1
+               : dim == 1                                              ? 2
+                                                                       : 3;
   for (int l = 0; l < 4; ++l) {
     if (l < ctx.lane_count) {
-      ReadFetchSource(ctx.lanes[l], tf.src(), tf.is_src_relative(), tf.src_swizzle(), n,
-                      snap->v[l], snap->t[l]);
+      ReadFetchSource(ctx.lanes[l], tf.src(), tf.is_src_relative(), tf.src_swizzle(), n, snap->v[l],
+                      snap->t[l]);
     } else {
-      for (int i = 0; i < 3; ++i) { snap->v[l][i] = 0; snap->t[l][i] = 0; }
+      for (int i = 0; i < 3; ++i) {
+        snap->v[l][i] = 0;
+        snap->t[l][i] = 0;
+      }
     }
   }
 }
 
 // --- Control flow ---
 
-void ExecuteExec(Ctx& ctx, const std::vector<Lane*>& lanes, const ucode::ControlFlowInstruction& cf) {
+void ExecuteExec(Ctx& ctx, const std::vector<Lane*>& lanes,
+                 const ucode::ControlFlowInstruction& cf) {
   const auto& ex = cf.exec;
   uint32_t address = ex.address();
   uint32_t count = ex.count();
@@ -969,18 +1093,31 @@ void ExecuteExec(Ctx& ctx, const std::vector<Lane*>& lanes, const ucode::Control
         SnapshotQuad(ctx, instr, &snap);
         sp = &snap;
       }
-      for (Lane* l : lanes) ExecuteFetch(ctx, *l, instr, sp);
+      for (Lane* l : lanes)
+        ExecuteFetch(ctx, *l, instr, sp);
     } else {
-      for (Lane* l : lanes) ExecuteAlu(ctx, *l, instr);
+      for (Lane* l : lanes)
+        ExecuteAlu(ctx, *l, instr);
     }
   }
 }
 
 std::string CfName(ucode::ControlFlowOpcode op) {
-  static const char* kNames[] = {"cnop", "exec", "exece", "cexec", "cexece",
-                                 "cexec_pred", "cexece_pred", "loop", "endloop",
-                                 "ccall", "ret", "cjmp", "alloc",
-                                 "cexec_pred_clean", "cexece_pred_clean",
+  static const char* kNames[] = {"cnop",
+                                 "exec",
+                                 "exece",
+                                 "cexec",
+                                 "cexece",
+                                 "cexec_pred",
+                                 "cexece_pred",
+                                 "loop",
+                                 "endloop",
+                                 "ccall",
+                                 "ret",
+                                 "cjmp",
+                                 "alloc",
+                                 "cexec_pred_clean",
+                                 "cexece_pred_clean",
                                  "vfetch_done"};
   return kNames[uint32_t(op) & 15];
 }
@@ -989,9 +1126,13 @@ std::string CfName(ucode::ControlFlowOpcode op) {
 void StepCf(Ctx& ctx, std::vector<Lane*>& lanes, uint32_t pc) {
   ucode::ControlFlowInstruction cf;
   if (!GetCf(*ctx.prog, pc, &cf)) {
-    for (Lane* l : lanes) l->ended = true;
-    ctx.Note("control flow ran past the end of the program");
-    ctx.ok = false;
+    // Hardware terminates cleanly when control flow reaches the end of the
+    // allocated ucode. This happens when a non-ending instruction (NOP, exec
+    // without End, etc.) is at the last CF slot and advances PC past it.
+    // Treating this as a clean end rather than an error matches real behavior.
+    RX_USE(xenos_cf_end_of_program);
+    for (Lane* l : lanes)
+      l->ended = true;
     return;
   }
   using C = ucode::ControlFlowOpcode;
@@ -1017,25 +1158,31 @@ void StepCf(Ctx& ctx, std::vector<Lane*>& lanes, uint32_t pc) {
       RX_USE(xenos_cf_exec);
       std::vector<Lane*> taken;
       for (Lane* l : lanes) {
-        if (l->ended) continue;
+        if (l->ended)
+          continue;
         bool take = true;
         if (op == C::kCondExec || op == C::kCondExecEnd || op == C::kCondExecPredClean ||
             op == C::kCondExecPredCleanEnd) {
-          if (op == C::kCondExecPredClean || op == C::kCondExecPredCleanEnd) RX_USE(xenos_cf_pred_clean);
+          if (op == C::kCondExecPredClean || op == C::kCondExecPredCleanEnd)
+            RX_USE(xenos_cf_pred_clean);
           take = BoolConstant(regs, cf.cond_exec.bool_address()) == cf.cond_exec.condition();
         } else if (op == C::kCondExecPred || op == C::kCondExecPredEnd) {
           take = l->p == cf.cond_exec_pred.condition();
         }
         if (l->trace) {
-          Trace(ctx, *l, "cf " + std::to_string(pc) + ": " + CfName(op) + " addr " +
-                             std::to_string(cf.exec.address()) + " count " +
-                             std::to_string(cf.exec.count()) + (take ? "" : "  ; not taken"));
+          Trace(ctx, *l,
+                "cf " + std::to_string(pc) + ": " + CfName(op) + " addr " +
+                    std::to_string(cf.exec.address()) + " count " +
+                    std::to_string(cf.exec.count()) + (take ? "" : "  ; not taken"));
         }
-        if (take) taken.push_back(l);
+        if (take)
+          taken.push_back(l);
       }
-      if (!taken.empty()) ExecuteExec(ctx, taken, cf);
+      if (!taken.empty())
+        ExecuteExec(ctx, taken, cf);
       if (ucode::DoesControlFlowOpcodeEndShader(op)) {
-        for (Lane* l : taken) l->ended = true;
+        for (Lane* l : taken)
+          l->ended = true;
       }
     } break;
     case C::kLoopStart: {
@@ -1044,10 +1191,15 @@ void StepCf(Ctx& ctx, std::vector<Lane*>& lanes, uint32_t pc) {
       xenos::LoopConstant lc;
       lc.value = regs.values[XE_GPU_REG_SHADER_CONSTANT_LOOP_00 + ls.loop_id()];
       for (Lane* l : lanes) {
-        if (l->trace) Trace(*&ctx, *l, "cf " + std::to_string(pc) + ": loop i" + std::to_string(ls.loop_id()) +
-                                           " count " + std::to_string(lc.count) + " start " +
-                                           std::to_string(lc.start) + " step " + std::to_string(lc.step));
-        if (lc.count == 0) { l->cf = ls.address(); continue; }
+        if (l->trace)
+          Trace(*&ctx, *l,
+                "cf " + std::to_string(pc) + ": loop i" + std::to_string(ls.loop_id()) + " count " +
+                    std::to_string(lc.count) + " start " + std::to_string(lc.start) + " step " +
+                    std::to_string(lc.step));
+        if (lc.count == 0) {
+          l->cf = ls.address();
+          continue;
+        }
         if (l->loop_depth >= 4) {
           RX_USE(xenos_cf_loop_depth);
           ctx.Note("loop nesting deeper than 4 skipped");
@@ -1055,7 +1207,8 @@ void StepCf(Ctx& ctx, std::vector<Lane*>& lanes, uint32_t pc) {
           continue;
         }
         int32_t aL = ls.is_repeat() && l->loop_depth ? l->aL[l->loop_depth - 1] : int32_t(lc.start);
-        if (ls.is_repeat() && !l->loop_depth) aL = 0;
+        if (ls.is_repeat() && !l->loop_depth)
+          aL = 0;
         l->loop_count[l->loop_depth] = lc.count;
         l->loop_step[l->loop_depth] = lc.step;
         l->aL[l->loop_depth] = aL;
@@ -1066,12 +1219,16 @@ void StepCf(Ctx& ctx, std::vector<Lane*>& lanes, uint32_t pc) {
       RX_USE(xenos_cf_loop);
       const auto& le = cf.loop_end;
       for (Lane* l : lanes) {
-        if (!l->loop_depth) { ctx.Note("loop_end without loop_start"); continue; }
+        if (!l->loop_depth) {
+          ctx.Note("loop_end without loop_start");
+          continue;
+        }
         int d = l->loop_depth - 1;
         --l->loop_count[d];
-        bool brk = l->loop_count[d] == 0 ||
-                   (le.is_predicated_break() && l->p == le.condition());
-        if (l->trace) Trace(ctx, *l, "cf " + std::to_string(pc) + ": endloop" + (brk ? "  ; exit" : "  ; repeat"));
+        bool brk = l->loop_count[d] == 0 || (le.is_predicated_break() && l->p == le.condition());
+        if (l->trace)
+          Trace(ctx, *l,
+                "cf " + std::to_string(pc) + ": endloop" + (brk ? "  ; exit" : "  ; repeat"));
         if (brk) {
           --l->loop_depth;
         } else {
@@ -1087,8 +1244,12 @@ void StepCf(Ctx& ctx, std::vector<Lane*>& lanes, uint32_t pc) {
         bool take = cc.is_unconditional() ||
                     (cc.is_predicated() ? l->p == cc.condition()
                                         : BoolConstant(regs, cc.bool_address()) == cc.condition());
-        if (l->trace) Trace(ctx, *l, "cf " + std::to_string(pc) + ": call " + std::to_string(cc.address()) + (take ? "" : "  ; not taken"));
-        if (!take) continue;
+        if (l->trace)
+          Trace(ctx, *l,
+                "cf " + std::to_string(pc) + ": call " + std::to_string(cc.address()) +
+                    (take ? "" : "  ; not taken"));
+        if (!take)
+          continue;
         if (l->call_depth >= 4) {
           RX_USE(xenos_cf_loop_depth);
           ctx.Note("call nesting deeper than 4 skipped");
@@ -1100,8 +1261,12 @@ void StepCf(Ctx& ctx, std::vector<Lane*>& lanes, uint32_t pc) {
     } break;
     case C::kReturn:
       for (Lane* l : lanes) {
-        if (l->trace) Trace(ctx, *l, "cf " + std::to_string(pc) + ": ret");
-        if (!l->call_depth) { RX_USE(xenos_cf_loop_depth); continue; }
+        if (l->trace)
+          Trace(ctx, *l, "cf " + std::to_string(pc) + ": ret");
+        if (!l->call_depth) {
+          RX_USE(xenos_cf_loop_depth);
+          continue;
+        }
         l->cf = l->call_ret[--l->call_depth];
       }
       break;
@@ -1112,15 +1277,21 @@ void StepCf(Ctx& ctx, std::vector<Lane*>& lanes, uint32_t pc) {
         bool take = cj.is_unconditional() ||
                     (cj.is_predicated() ? l->p == cj.condition()
                                         : BoolConstant(regs, cj.bool_address()) == cj.condition());
-        if (l->trace) Trace(ctx, *l, "cf " + std::to_string(pc) + ": jmp " + std::to_string(cj.address()) + (take ? "" : "  ; not taken"));
-        if (take) l->cf = cj.address();
+        if (l->trace)
+          Trace(ctx, *l,
+                "cf " + std::to_string(pc) + ": jmp " + std::to_string(cj.address()) +
+                    (take ? "" : "  ; not taken"));
+        if (take)
+          l->cf = cj.address();
       }
     } break;
     case C::kAlloc:
       for (Lane* l : lanes) {
-        if (l->trace) Trace(ctx, *l, "cf " + std::to_string(pc) + ": alloc type " +
-                                       std::to_string(uint32_t(cf.alloc.alloc_type())) + " size " +
-                                       std::to_string(cf.alloc.size()));
+        if (l->trace)
+          Trace(ctx, *l,
+                "cf " + std::to_string(pc) + ": alloc type " +
+                    std::to_string(uint32_t(cf.alloc.alloc_type())) + " size " +
+                    std::to_string(cf.alloc.size()));
       }
       break;
     case C::kNop:
@@ -1136,12 +1307,15 @@ void RunLanes(Ctx& ctx) {
   for (;;) {
     uint32_t min_pc = UINT32_MAX;
     for (int i = 0; i < ctx.lane_count; ++i) {
-      if (!ctx.lanes[i].ended) min_pc = std::min(min_pc, ctx.lanes[i].cf);
+      if (!ctx.lanes[i].ended)
+        min_pc = std::min(min_pc, ctx.lanes[i].cf);
     }
-    if (min_pc == UINT32_MAX) break;
+    if (min_pc == UINT32_MAX)
+      break;
     std::vector<Lane*> group;
     for (int i = 0; i < ctx.lane_count; ++i) {
-      if (!ctx.lanes[i].ended && ctx.lanes[i].cf == min_pc) group.push_back(&ctx.lanes[i]);
+      if (!ctx.lanes[i].ended && ctx.lanes[i].cf == min_pc)
+        group.push_back(&ctx.lanes[i]);
     }
     StepCf(ctx, group, min_pc);
   }
@@ -1180,10 +1354,9 @@ void FinishNotes(Ctx& ctx, DrawStats& stats) {
 // ---------------------------------------------------------------------------
 // Entry points
 
-bool RunVertexShaderRaw(const ShaderProgram& prog, const RegisterFile& regs,
-                        const Memory& memory, uint32_t vertex_index,
-                        TextureSampler* sampler, RawExports* out, DrawStats& stats,
-                        Probe* probe) {
+bool RunVertexShaderRaw(const ShaderProgram& prog, const RegisterFile& regs, const Memory& memory,
+                        uint32_t vertex_index, TextureSampler* sampler, RawExports* out,
+                        DrawStats& stats, Probe* probe) {
   auto lane = std::make_unique<Lane>();
   InitLane(*lane);
   InitExports(*out);
@@ -1210,10 +1383,9 @@ bool RunVertexShaderRaw(const ShaderProgram& prog, const RegisterFile& regs,
   return ctx.ok;
 }
 
-bool RunVertexShader(const ShaderProgram& prog, const RegisterFile& regs,
-                     const Memory& memory, uint32_t vertex_index,
-                     TextureSampler* sampler, VertexOut* out, DrawStats& stats,
-                     Probe* probe) {
+bool RunVertexShader(const ShaderProgram& prog, const RegisterFile& regs, const Memory& memory,
+                     uint32_t vertex_index, TextureSampler* sampler, VertexOut* out,
+                     DrawStats& stats, Probe* probe) {
   auto e = std::make_unique<RawExports>();
   bool ok = RunVertexShaderRaw(prog, regs, memory, vertex_index, sampler, e.get(), stats, probe);
   *out = VertexOut();
@@ -1244,10 +1416,9 @@ bool RunVertexShader(const ShaderProgram& prog, const RegisterFile& regs,
   return ok;
 }
 
-bool RunPixelQuadRaw(const ShaderProgram& prog, const RegisterFile& regs,
-                     const PixelQuad& quad, const float (*inputs)[16][4],
-                     TextureSampler* sampler, RawExports out[4], DrawStats& stats,
-                     Probe* probe) {
+bool RunPixelQuadRaw(const ShaderProgram& prog, const RegisterFile& regs, const PixelQuad& quad,
+                     const float (*inputs)[16][4], TextureSampler* sampler, RawExports out[4],
+                     DrawStats& stats, Probe* probe) {
   auto lanes = std::make_unique<Lane[]>(4);
   Ctx ctx;
   ctx.prog = &prog;
@@ -1279,7 +1450,8 @@ bool RunPixelQuadRaw(const ShaderProgram& prog, const RegisterFile& regs,
       }
     }
     if (!inputs && cntl.param_gen && misc.param_gen_pos < 16) {
-      for (int c = 0; c < 4; ++c) lane.r[misc.param_gen_pos][c] = quad.param_gen[l][c];
+      for (int c = 0; c < 4; ++c)
+        lane.r[misc.param_gen_pos][c] = quad.param_gen[l][c];
     }
   }
   RunLanes(ctx);
@@ -1292,9 +1464,8 @@ bool RunPixelQuadRaw(const ShaderProgram& prog, const RegisterFile& regs,
   return ctx.ok;
 }
 
-bool RunPixelQuad(const ShaderProgram& prog, const RegisterFile& regs,
-                  const PixelQuad& quad, TextureSampler* sampler, PixelOut out[4],
-                  DrawStats& stats, Probe* probe) {
+bool RunPixelQuad(const ShaderProgram& prog, const RegisterFile& regs, const PixelQuad& quad,
+                  TextureSampler* sampler, PixelOut out[4], DrawStats& stats, Probe* probe) {
   auto e = std::make_unique<RawExports[]>(4);
   bool ok = RunPixelQuadRaw(prog, regs, quad, nullptr, sampler, e.get(), stats, probe);
   for (int l = 0; l < 4; ++l) {
@@ -1317,7 +1488,8 @@ bool RunPixelQuad(const ShaderProgram& prog, const RegisterFile& regs,
     out[l].killed = x.killed;
     if (quad.coverage[l]) {
       ++stats.pixels_shaded;
-      if (x.killed) ++stats.pixels_killed;
+      if (x.killed)
+        ++stats.pixels_killed;
     }
   }
   return ok;
@@ -1334,42 +1506,54 @@ std::string DisassembleAlu(const uint32_t* dwords) {
     std::string s = op.src_negate(i) ? "-" : "";
     uint32_t reg = op.src_reg(i);
     if (op.src_is_temp(i)) {
-      s += (reg & 0x40) ? "r[aL+" + std::to_string(reg & 0x3F) + "]" : "r" + std::to_string(reg & 0x3F);
-      if (reg & 0x80) s += "_abs";
+      s += (reg & 0x40) ? "r[aL+" + std::to_string(reg & 0x3F) + "]"
+                        : "r" + std::to_string(reg & 0x3F);
+      if (reg & 0x80)
+        s += "_abs";
     } else {
       if (op.src_const_is_addressed(i)) {
-        s += std::string("c[") + (op.is_const_address_register_relative() ? "a0" : "aL") + "+" + std::to_string(reg) + "]";
+        s += std::string("c[") + (op.is_const_address_register_relative() ? "a0" : "aL") + "+" +
+             std::to_string(reg) + "]";
       } else {
         s += "c" + std::to_string(reg);
       }
-      if (op.abs_constants()) s += "_abs";
+      if (op.abs_constants())
+        s += "_abs";
     }
     uint32_t swz = op.src_swizzle(i);
     s += ".";
-    for (uint32_t j = 0; j < 4; ++j) s += "xyzw"[((swz >> (2 * j)) + j) & 3];
+    for (uint32_t j = 0; j < 4; ++j)
+      s += "xyzw"[((swz >> (2 * j)) + j) & 3];
     return s;
   };
   auto mask = [](uint32_t m) {
     std::string s;
-    for (int i = 0; i < 4; ++i) s += (m & (1u << i)) ? "xyzw"[i] : '_';
+    for (int i = 0; i < 4; ++i)
+      s += (m & (1u << i)) ? "xyzw"[i] : '_';
     return s;
   };
   std::string s;
-  if (op.is_predicated()) s += op.predicate_condition() ? "(p0) " : "(!p0) ";
+  if (op.is_predicated())
+    s += op.predicate_condition() ? "(p0) " : "(!p0) ";
   std::string vdest = op.is_export() ? "export" + std::to_string(op.vector_dest())
-                                     : (op.is_vector_dest_relative() ? "r[aL+" + std::to_string(op.vector_dest()) + "]"
-                                                                     : "r" + std::to_string(op.vector_dest()));
+                                     : (op.is_vector_dest_relative()
+                                            ? "r[aL+" + std::to_string(op.vector_dest()) + "]"
+                                            : "r" + std::to_string(op.vector_dest()));
   s += std::string(vi.name) + (op.vector_clamp() ? "_sat " : " ") + vdest + "." +
        mask(op.GetVectorOpResultWriteMask());
-  for (uint32_t i = 0; i < vi.GetOperandCount(); ++i) s += ", " + src(i + 1);
+  for (uint32_t i = 0; i < vi.GetOperandCount(); ++i)
+    s += ", " + src(i + 1);
   std::string sdest = op.is_export() ? "export" + std::to_string(op.vector_dest())
-                                     : (op.is_scalar_dest_relative() ? "r[aL+" + std::to_string(op.scalar_dest()) + "]"
-                                                                     : "r" + std::to_string(op.scalar_dest()));
+                                     : (op.is_scalar_dest_relative()
+                                            ? "r[aL+" + std::to_string(op.scalar_dest()) + "]"
+                                            : "r" + std::to_string(op.scalar_dest()));
   s += " + " + std::string(si.name) + (op.scalar_clamp() ? "_sat " : " ") + sdest + "." +
        mask(op.GetScalarOpResultWriteMask());
-  if (si.operand_count == 1) s += ", " + src(3);
+  if (si.operand_count == 1)
+    s += ", " + src(3);
   if (si.operand_count == 2) {
-    s += ", c" + std::to_string(op.src_reg(3)) + ", r" + std::to_string(op.scalar_const_reg_op_src_temp_reg());
+    s += ", c" + std::to_string(op.src_reg(3)) + ", r" +
+         std::to_string(op.scalar_const_reg_op_src_temp_reg());
   }
   return s;
 }
@@ -1377,45 +1561,64 @@ std::string DisassembleAlu(const uint32_t* dwords) {
 std::string DisassembleFetch(const uint32_t* dwords) {
   const auto& f = *reinterpret_cast<const ucode::FetchInstruction*>(dwords);
   std::string s;
-  if (f.is_predicated()) s += f.predicate_condition() ? "(p0) " : "(!p0) ";
+  if (f.is_predicated())
+    s += f.predicate_condition() ? "(p0) " : "(!p0) ";
   static const char* kDims[] = {"1D", "2D", "3D", "Cube"};
   char buf[160];
   auto dsw = [&] {
     std::string d;
-    for (uint32_t c = 0; c < 4; ++c) d += "xyzw01?_"[uint32_t(ucode::GetFetchDestinationComponentSwizzle(f.dest_swizzle(), c))];
+    for (uint32_t c = 0; c < 4; ++c)
+      d += "xyzw01?_"[uint32_t(ucode::GetFetchDestinationComponentSwizzle(f.dest_swizzle(), c))];
     return d;
   };
   switch (f.opcode()) {
     case ucode::FetchOpcode::kVertexFetch: {
       const auto& v = f.vertex_fetch();
-      std::snprintf(buf, sizeof(buf), "%s r%u.%s, r%u.%c, vf%u format=%u stride=%u offset=%d%s%s exp=%d",
-                    v.is_mini_fetch() ? "vfetch_mini" : "vfetch_full", f.dest(), dsw().c_str(), v.src(),
-                    "xyzw"[v.src_swizzle() & 3], v.fetch_constant_index(), uint32_t(v.data_format()),
-                    v.stride(), v.offset(), v.is_signed() ? " signed" : "", v.is_normalized() ? " norm" : "",
-                    v.exp_adjust());
+      std::snprintf(
+          buf, sizeof(buf), "%s r%u.%s, r%u.%c, vf%u format=%u stride=%u offset=%d%s%s exp=%d",
+          v.is_mini_fetch() ? "vfetch_mini" : "vfetch_full", f.dest(), dsw().c_str(), v.src(),
+          "xyzw"[v.src_swizzle() & 3], v.fetch_constant_index(), uint32_t(v.data_format()),
+          v.stride(), v.offset(), v.is_signed() ? " signed" : "", v.is_normalized() ? " norm" : "",
+          v.exp_adjust());
       return s + buf;
     }
     default: {
       const auto& t = f.texture_fetch();
       const char* name = "tfetch";
       switch (f.opcode()) {
-        case ucode::FetchOpcode::kGetTextureBorderColorFrac: name = "getBCF"; break;
-        case ucode::FetchOpcode::kGetTextureComputedLod: name = "getCompTexLOD"; break;
-        case ucode::FetchOpcode::kGetTextureGradients: name = "getGradients"; break;
-        case ucode::FetchOpcode::kGetTextureWeights: name = "getWeights"; break;
-        case ucode::FetchOpcode::kSetTextureLod: name = "setTexLOD"; break;
-        case ucode::FetchOpcode::kSetTextureGradientsHorz: name = "setGradientH"; break;
-        case ucode::FetchOpcode::kSetTextureGradientsVert: name = "setGradientV"; break;
-        default: break;
+        case ucode::FetchOpcode::kGetTextureBorderColorFrac:
+          name = "getBCF";
+          break;
+        case ucode::FetchOpcode::kGetTextureComputedLod:
+          name = "getCompTexLOD";
+          break;
+        case ucode::FetchOpcode::kGetTextureGradients:
+          name = "getGradients";
+          break;
+        case ucode::FetchOpcode::kGetTextureWeights:
+          name = "getWeights";
+          break;
+        case ucode::FetchOpcode::kSetTextureLod:
+          name = "setTexLOD";
+          break;
+        case ucode::FetchOpcode::kSetTextureGradientsHorz:
+          name = "setGradientH";
+          break;
+        case ucode::FetchOpcode::kSetTextureGradientsVert:
+          name = "setGradientV";
+          break;
+        default:
+          break;
       }
       uint32_t sw = t.src_swizzle();
-      std::snprintf(buf, sizeof(buf), "%s%s r%u.%s, r%u.%c%c%c, tf%u%s%s%s%s bias=%g off=(%g,%g,%g)",
-                    name, kDims[uint32_t(t.dimension())], f.dest(), dsw().c_str(), t.src(),
-                    "xyzw"[sw & 3], "xyzw"[(sw >> 2) & 3], "xyzw"[(sw >> 4) & 3],
-                    t.fetch_constant_index(), t.use_computed_lod() ? " complod" : "",
-                    t.use_register_lod() ? " reglod" : "", t.use_register_gradients() ? " reggrad" : "",
-                    t.unnormalized_coordinates() ? " unnorm" : "", double(t.lod_bias()),
-                    double(t.offset_x()), double(t.offset_y()), double(t.offset_z()));
+      std::snprintf(
+          buf, sizeof(buf), "%s%s r%u.%s, r%u.%c%c%c, tf%u%s%s%s%s bias=%g off=(%g,%g,%g)", name,
+          kDims[uint32_t(t.dimension())], f.dest(), dsw().c_str(), t.src(), "xyzw"[sw & 3],
+          "xyzw"[(sw >> 2) & 3], "xyzw"[(sw >> 4) & 3], t.fetch_constant_index(),
+          t.use_computed_lod() ? " complod" : "", t.use_register_lod() ? " reglod" : "",
+          t.use_register_gradients() ? " reggrad" : "",
+          t.unnormalized_coordinates() ? " unnorm" : "", double(t.lod_bias()), double(t.offset_x()),
+          double(t.offset_y()), double(t.offset_z()));
       return s + buf;
     }
   }
@@ -1423,7 +1626,8 @@ std::string DisassembleFetch(const uint32_t* dwords) {
 
 std::string DisassembleCf(const ShaderProgram& prog, uint32_t cf_index) {
   ucode::ControlFlowInstruction cf;
-  if (!GetCf(prog, cf_index, &cf)) return "<out of range>";
+  if (!GetCf(prog, cf_index, &cf))
+    return "<out of range>";
   return CfName(cf.opcode());
 }
 
@@ -1432,14 +1636,18 @@ bool ShaderUsesTextureFetchResults(const ShaderProgram& prog) {
   uint32_t min_addr = uint32_t(prog.ucode.size() / 3);
   for (uint32_t cf = 0; (cf >> 1) < min_addr; ++cf) {
     ucode::ControlFlowInstruction c;
-    if (!GetCf(prog, cf, &c)) break;
-    if (!ucode::IsControlFlowOpcodeExec(c.opcode())) continue;
+    if (!GetCf(prog, cf, &c))
+      break;
+    if (!ucode::IsControlFlowOpcodeExec(c.opcode()))
+      continue;
     uint32_t a = c.exec.address();
     min_addr = std::min(min_addr, a);
     for (uint32_t i = 0; i < c.exec.count(); ++i) {
-      if (!((c.exec.sequence() >> (2 * i)) & 1)) continue;
+      if (!((c.exec.sequence() >> (2 * i)) & 1))
+        continue;
       const uint32_t* in = GetInstr(prog, a + i);
-      if (!in) continue;
+      if (!in)
+        continue;
       const auto& f = *reinterpret_cast<const ucode::FetchInstruction*>(in);
       switch (f.opcode()) {
         case ucode::FetchOpcode::kTextureFetch:
@@ -1447,7 +1655,8 @@ bool ShaderUsesTextureFetchResults(const ShaderProgram& prog) {
         case ucode::FetchOpcode::kGetTextureComputedLod:
         case ucode::FetchOpcode::kGetTextureGradients:
         case ucode::FetchOpcode::kGetTextureWeights:
-          if (f.dest_swizzle() != 0xFFF) return true;
+          if (f.dest_swizzle() != 0xFFF)
+            return true;
           break;
         default:
           break;

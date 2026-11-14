@@ -25,8 +25,7 @@
 
 namespace rex::graphics::trace {
 
-TextureCheck::TextureCheck(memory::Memory* memory, const std::filesystem::path& out_dir,
-                           bool race)
+TextureCheck::TextureCheck(memory::Memory* memory, const std::filesystem::path& out_dir, bool race)
     : memory_(memory), race_(race) {
   report_ = std::fopen((out_dir / "texcheck.jsonl").string().c_str(), "wb");
 }
@@ -46,9 +45,13 @@ uint64_t TextureCheck::HashGuest(uint32_t address, uint32_t size) const {
   return XXH3_64bits(memory_->TranslatePhysical(address), size);
 }
 
-void TextureCheck::NoteOrigin(uint64_t hash, uint32_t address, uint32_t size,
-                              const Position& at) {
+void TextureCheck::NoteOrigin(uint64_t hash, uint32_t address, uint32_t size, const Position& at) {
   origins_.try_emplace(hash, Origin{address, size, at});
+}
+
+bool TextureCheck::RecordedWrite(uint64_t hash) const {
+  auto it = origins_.find(hash);
+  return it != origins_.end() && it->second.written;
 }
 
 std::string TextureCheck::OriginText(uint64_t hash) const {
@@ -64,8 +67,7 @@ std::string TextureCheck::OriginText(uint64_t hash) const {
                      it->second.size, it->second.at.frame, it->second.at.draw);
 }
 
-void TextureCheck::NoteWrite(uint32_t address, const void* data, uint32_t length,
-                             uint32_t frame) {
+void TextureCheck::NoteWrite(uint32_t address, const void* data, uint32_t length, uint32_t frame) {
   if (length < 256) {
     return;
   }
@@ -118,8 +120,7 @@ void TextureCheck::OnTextureLoadWindow(const TextureLoadEvent& event) {
   std::unique_lock<std::mutex> lock(mutex_);
   ++loads_;
   Key key{event.base_address & 0x1FFFFFFF, event.mips_address & 0x1FFFFFFF,
-          uint32_t(GetBaseFormat(xenos::TextureFormat(event.format))), event.width,
-          event.height};
+          uint32_t(GetBaseFormat(xenos::TextureFormat(event.format))), event.width, event.height};
   Entry& entry = entries_[key];
   // What the load read: the guest bytes now. The resident path uploaded the
   // invalid pages of these ranges to the shared memory buffer right before.
@@ -156,8 +157,7 @@ void TextureCheck::OnTextureLoadWindow(const TextureLoadEvent& event) {
     // The write fires the cache's callbacks, which may take the cache's own
     // locks and call back into nothing here, but keep our mutex free anyway.
     lock.unlock();
-    bool applied = writer(r.address & 0x1FFFFFFF, r.size, write_address, write_length,
-                          write_frame);
+    bool applied = writer(r.address & 0x1FFFFFFF, r.size, write_address, write_length, write_frame);
     lock.lock();
     if (applied) {
       Entry& e = entries_[key];
@@ -169,7 +169,8 @@ void TextureCheck::OnTextureLoadWindow(const TextureLoadEvent& event) {
         injected_packet_ = position_.packet;
         injected_.clear();
       }
-      injected_.push_back({write_address & 0x1FFFFFFF, (write_address & 0x1FFFFFFF) + write_length});
+      injected_.push_back(
+          {write_address & 0x1FFFFFFF, (write_address & 0x1FFFFFFF) + write_length});
       if (report_) {
         std::fprintf(report_,
                      "{\"kind\":\"race\",\"frame\":%u,\"draw\":%u,\"texture\":\"0x%08X\","
@@ -198,8 +199,7 @@ bool TextureCheck::InjectedThisPacket(uint32_t address, uint32_t size) const {
   return false;
 }
 
-void TextureCheck::CheckDraw(const RegisterFile& regs, Shader* vs, Shader* ps,
-                             std::string& json) {
+void TextureCheck::CheckDraw(const RegisterFile& regs, Shader* vs, Shader* ps, std::string& json) {
   std::lock_guard<std::mutex> lock(mutex_);
   json += ",\"texcheck\":[";
   bool first = true;
@@ -221,8 +221,8 @@ void TextureCheck::CheckDraw(const RegisterFile& regs, Shader* vs, Shader* ps,
       uint32_t width_minus_1, height_minus_1, depth_minus_1;
       uint32_t base_page, mip_page, mip_max_level;
       texture_util::GetSubresourcesFromFetchConstant(fetch, &width_minus_1, &height_minus_1,
-                                                     &depth_minus_1, &base_page, &mip_page,
-                                                     nullptr, &mip_max_level);
+                                                     &depth_minus_1, &base_page, &mip_page, nullptr,
+                                                     &mip_max_level);
       if (!base_page && !mip_page) {
         continue;
       }
@@ -238,10 +238,9 @@ void TextureCheck::CheckDraw(const RegisterFile& regs, Shader* vs, Shader* ps,
         state = "unloaded";
         ++unloaded_;
       } else {
-        bool gpu = (entry->base.valid &&
-                    OverlapsGpuWritten(entry->base.address, entry->base.size)) ||
-                   (entry->mips.valid &&
-                    OverlapsGpuWritten(entry->mips.address, entry->mips.size));
+        bool gpu =
+            (entry->base.valid && OverlapsGpuWritten(entry->base.address, entry->base.size)) ||
+            (entry->mips.valid && OverlapsGpuWritten(entry->mips.address, entry->mips.size));
         if (gpu) {
           state = "gpu";
           ++gpu_skipped_;
@@ -266,6 +265,17 @@ void TextureCheck::CheckDraw(const RegisterFile& regs, Shader* vs, Shader* ps,
             stale_base = stale_mips = false;
           } else if (stale_base || stale_mips) {
             state = "stale";
+            if (race_ && !RecordedWrite(stale_base ? entry->base.hash : entry->mips.hash) &&
+                !RecordedWrite(stale_base ? cur_base : cur_mips)) {
+              // Race mode only: neither the loaded bytes nor the current
+              // guest bytes are a version the game ever wrote. Early-applied
+              // writes from overlapping ranges left memory in a state the
+              // game never had, so this is a replay artifact, not a cache
+              // result. Counted as "mixed", never as stale.
+              state = "mixed";
+              ++mixed_;
+              stale_base = stale_mips = false;
+            }
           }
         }
       }
@@ -336,9 +346,10 @@ void TextureCheck::CheckDraw(const RegisterFile& regs, Shader* vs, Shader* ps,
 std::string TextureCheck::SummaryJson() const {
   return fmt::format(
       "{{\"race\":{},\"loads\":{},\"checked\":{},\"stale\":{},\"stale_distinct\":{},"
-      "\"unloaded\":{},\"gpu_written_skipped\":{},\"race_injections\":{},\"race_misses\":{}}}",
+      "\"unloaded\":{},\"gpu_written_skipped\":{},\"race_injections\":{},\"race_misses\":{},"
+      "\"mixed\":{}}}",
       race_ ? "true" : "false", loads_, checked_, stale_, stale_distinct_.size(), unloaded_,
-      gpu_skipped_, race_injections_, race_misses_);
+      gpu_skipped_, race_injections_, race_misses_, mixed_);
 }
 
 }  // namespace rex::graphics::trace

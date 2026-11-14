@@ -43,6 +43,10 @@ struct NtSystemClock {
   using period = hundrednano;
   using duration = hundrednanoseconds;
   using time_point = std::chrono::time_point<NtSystemClock<domain_>>;
+  // Keep the FILETIME range when using the system_clock epoch. Linux's native
+  // system_clock duration is nanoseconds and cannot represent dates before
+  // 1677, while hundrednanoseconds can represent the full NT epoch range.
+  using sys_time = std::chrono::time_point<std::chrono::system_clock, duration>;
   // This really depends on the context the clock is used in:
   // static constexpr bool is_steady = false;
 
@@ -72,19 +76,17 @@ struct NtSystemClock {
 
   // To convert XSystemClock to sys, do clock_cast<WinSystemTime>(tp) first
   // Only available for Host domain (Guest time must be converted via clock_cast)
-  static constexpr std::chrono::system_clock::time_point to_sys(const time_point& tp)
+  static constexpr sys_time to_sys(const time_point& tp)
     requires(domain_ == Domain::Host)
   {
-    using sys_duration = std::chrono::system_clock::duration;
-    using sys_time = std::chrono::system_clock::time_point;
-
     auto dp = tp;
     dp += unix_epoch_delta();
-    auto cdp = std::chrono::time_point_cast<sys_duration>(dp);
-    return sys_time{cdp.time_since_epoch()};
+    return sys_time{dp.time_since_epoch()};
   }
 
-  static constexpr time_point from_sys(const std::chrono::system_clock::time_point& tp)
+  template <typename Duration>
+  static constexpr time_point from_sys(
+      const std::chrono::time_point<std::chrono::system_clock, Duration>& tp)
     requires(domain_ == Domain::Host)
   {
     auto ctp = std::chrono::time_point_cast<duration>(tp);
